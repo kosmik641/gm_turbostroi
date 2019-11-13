@@ -1,9 +1,10 @@
-[submodule "external/garrysmod"]
-	path = external/garrysmod
-	url=https://github.com/Facepunch/gmod-module-base/tree/development
 [submodule "external/sourcehook"]
 	path = external/sourcehook
 	url=https://github.com/alliedmodders/metamod-source/tree/master/core/sourcehook
 [submodule "external/sourcesdk-minimal"]
 	path = external/sourcesdk-minimal
 	url = https://github.com/danielga/sourcesdk-minimal
+[submodule "external/garrysmod"]
+	path = external/garrysmod
+	url = https://github.com/Facepunch/gmod-module-base
+	branch = development
