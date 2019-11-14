@@ -40,7 +40,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>GMMODULE;WIN32;_CRT_SECURE_NO_WARNINGS;NDEBUG;_WINDOWS;_USRDLL;GMSV_TURBOSTROI_WIN32_EXPORTS;GAME_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\external\sourcesdk-minimal\common;..\external\sourcehook;..\external\garrysmod\include;..\external\luajit;..\external\sourcesdk-minimal\public;..\external\sourcesdk-minimal\game\server;..\external\sourcesdk-minimal\game\shared;..\external\sourcesdk-minimal\public\tier0;..\external\sourcesdk-minimal\public\tier1;..\external\sourcesdk-minimal\public\tier2;..\external\sourcesdk-minimal\public\tier3;..\external\sourcesdk-minimal\public\mathlib;..\external\sourcesdk-minimal\raytrace;..\external\sourcesdk-minimal\public\steam</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\external\sourcesdk-minimal\common;..\external\metamod-source\core\sourcehook;..\external\garrysmod\include;..\external\luajit;..\external\sourcesdk-minimal\public;..\external\sourcesdk-minimal\game\server;..\external\sourcesdk-minimal\game\shared;..\external\sourcesdk-minimal\public\tier0;..\external\sourcesdk-minimal\public\tier1;..\external\sourcesdk-minimal\public\tier2;..\external\sourcesdk-minimal\public\tier3;..\external\sourcesdk-minimal\public\mathlib;..\external\sourcesdk-minimal\raytrace;..\external\sourcesdk-minimal\public\steam</AdditionalIncludeDirectories>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
@@ -55,12 +55,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\external\sourcehook\sourcehook.cpp" />
-    <ClCompile Include="..\external\sourcehook\sourcehook_hookmangen.cpp" />
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_chookidman.cpp" />
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_chookmaninfo.cpp" />
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_cproto.cpp" />
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_cvfnptr.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_hookmangen.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_chookidman.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_chookmaninfo.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_cproto.cpp" />
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_cvfnptr.cpp" />
     <ClCompile Include="gmsv_turbostroi_win32.cpp" />
   </ItemGroup>
   <ItemGroup>

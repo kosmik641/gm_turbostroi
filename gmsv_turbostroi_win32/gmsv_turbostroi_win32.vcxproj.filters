@@ -14,29 +14,29 @@
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
     <Filter Include="Файлы исходного кода\SourceHook">
-      <UniqueIdentifier>{36200ef8-bd7d-46d7-a67a-7eec0ac023d3}</UniqueIdentifier>
+      <UniqueIdentifier>{224a3096-81a0-4dfc-9ac6-29871b3e30eb}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="gmsv_turbostroi_win32.cpp">
       <Filter>Файлы исходного кода</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook_hookmangen.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_hookmangen.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_chookidman.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_chookidman.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_chookmaninfo.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_chookmaninfo.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_cproto.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_cproto.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\sourcehook\sourcehook_impl_cvfnptr.cpp">
+    <ClCompile Include="..\external\metamod-source\core\sourcehook\sourcehook_impl_cvfnptr.cpp">
       <Filter>Файлы исходного кода\SourceHook</Filter>
     </ClCompile>
   </ItemGroup>

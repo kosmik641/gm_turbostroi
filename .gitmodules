@@ -1,6 +1,6 @@
-[submodule "external/sourcehook"]
-	path = external/sourcehook
-	url=https://github.com/alliedmodders/metamod-source/tree/master/core/sourcehook
+[submodule "external/metamod-source"]
+	path = external/metamod-source
+	url=https://github.com/alliedmodders/metamod-source
 [submodule "external/sourcesdk-minimal"]
 	path = external/sourcesdk-minimal
 	url = https://github.com/danielga/sourcesdk-minimal
