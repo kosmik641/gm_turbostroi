@@ -1,8 +1,9 @@
-[submodule "external/sourcesdk-minimal"]
-	path = external/sourcesdk-minimal
-	url = https://github.com/danielga/sourcesdk-minimal
-[submodule "external/garrysmod"]
-	path = external/garrysmod
+[submodule "external/garrysmod_common-x86-64"]
+	path = external/garrysmod_common-x86-64
+	url = https://github.com/danielga/garrysmod_common
+	branch = x86-64-support-sourcesdk
+[submodule "external/gmod-module-base"]
+	path = external/gmod-module-base
 	url = https://github.com/Facepunch/gmod-module-base
 	branch = development
 [submodule "external/metamod-source"]

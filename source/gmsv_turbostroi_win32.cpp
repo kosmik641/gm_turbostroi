@@ -1,11 +1,11 @@
 ﻿#include "gmsv_turbostroi_win32.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <deque>
-#include <SDKDDKVer.h> // Set the proper SDK version before including boost/Asio и Асио инклюдит windows.h на линуксе просто асио и все
-#define _SCL_SECURE_NO_WARNINGS
+#include "lua.hpp"
+
+#include "GarrysMod/Lua/Interface.h"
+#include "GarrysMod/Lua/SourceCompat.h"
+using namespace GarrysMod::Lua;
+
 #include <boost/thread.hpp>
 #include <boost/chrono.hpp>
 #include <boost/atomic.hpp>
@@ -16,48 +16,34 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/unordered_map.hpp>
 
-#include "sourcehook_impl.h"
-
-using namespace SourceHook;
-
-#include "lua.hpp"
-
 //SourceSDK
-#undef _UNICODE
-int (WINAPIV * __vsnprintf)(char *, size_t, const char*, va_list) = _vsnprintf;
-int (WINAPIV * __vsnwprintf)(wchar_t *, size_t, const wchar_t*, va_list) = _vsnwprintf;
-#define strdup _strdup
-#define wcsdup _wcsdup
-#include <interface.h>
+#include <GarrysMod/FactoryLoader.hpp>
+#include <GarrysMod/InterfacePointers.hpp>
 #include <eiface.h>
 #include <Color.h>
-#include <dbg.h>
+#include <tier0/dbg.h>
 #include <game/server/iplayerinfo.h>
 #include <iserver.h>
-#include <convar.h>
-#include <icvar.h>
-#define GAME_DLL
-#include "../game/server/cbase.h"
-#undef GAME_DLL
-#define _UNICODE
+#include <tier1/convar.h>
+#include <tier1/iconvar.h>
 
-#define GARRYSMOD_LUA_SOURCECOMPAT_H
-#include "GarrysMod/Lua/Interface.h"
-using namespace GarrysMod::Lua;
+#include "sourcehook_impl.h"
+using namespace SourceHook;
+
 //------------------------------------------------------------------------------
 // SourceSDK
 //------------------------------------------------------------------------------
 SourceHook::Impl::CSourceHookImpl g_SourceHook;
 SourceHook::ISourceHook *g_SHPtr = &g_SourceHook;
 int g_PLID = 0;
-CGlobalVars *g_GlobalVars = NULL;
+
+static SourceSDK::FactoryLoader server_loader("server");
+static SourceSDK::FactoryLoader icvar_loader("vstdlib");
 
 IVEngineServer *engineServer = NULL;
 IServerGameDLL *engineServerDLL = NULL;
-IGameEventManager2 *gameEventManager = NULL; // game events interface
 IPlayerInfoManager *playerInfoManager = NULL;
-ICvar *g_pCVar = NULL;
-
+CGlobalVars* globalvars = NULL;
 //------------------------------------------------------------------------------
 // Lua Utils
 //------------------------------------------------------------------------------
@@ -197,7 +183,7 @@ int thread_sendmessage_rpc(lua_State* state) {
 	return 0;
 }
 
-extern "C" __declspec(dllexport) bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value) { //Нужно попробывать без extern "C"
+extern "C" __declspec(dllexport) bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value) {
 	bool successful = false;
 
 	thread_userdata* userdata = (thread_userdata*)p;
@@ -245,6 +231,7 @@ int thread_recvmessages(lua_State* state) {
 extern "C" __declspec(dllexport) thread_msg ThreadRecvMessage(void* p) {
 	thread_userdata* userdata = (thread_userdata*)p;
 	thread_msg tmsg;
+	//tmsg.message = NULL;
 	if (userdata) {
 		userdata->sim_to_thread.pop(tmsg);
 	}
@@ -513,7 +500,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	CBaseHandle* EntHandle;
 	IServerNetworkable* Entity;
 	//Get entity index
-	EntHandle = (CBaseHandle*)LUA->GetUserType<CBaseHandle>(1, Type::ENTITY);
+	EntHandle = (CBaseHandle*)LUA->GetUserType<CBaseHandle>(1, Type::Entity);
 	edict_t* EntityEdict = engineServer->PEntityOfEntIndex(EntHandle->GetEntryIndex());
 	Entity = EntityEdict->GetNetworkable();
 	trains_pos.insert(std::pair<int, IServerNetworkable*>(EntHandle->GetEntryIndex(), Entity));
@@ -602,7 +589,7 @@ LUA_FUNCTION( API_DeinitializeTrain )
 	//RailNetwork
 	CBaseHandle* EntHandle;
 	//Get entity index
-	EntHandle = (CBaseHandle*)LUA->GetUserType<CBaseHandle>(1, Type::ENTITY);
+	EntHandle = (CBaseHandle*)LUA->GetUserType<CBaseHandle>(1, Type::Entity);
 	trains_pos.erase(EntHandle->GetEntryIndex());
 	//End RailNetwork
 
@@ -613,7 +600,7 @@ LUA_FUNCTION( API_DeinitializeTrain )
 
 	LUA->PushNil();
 	LUA->SetField(1,"_sim_userdata");
-	
+
 	return 0;
 }
 
@@ -629,10 +616,10 @@ int API_InitializeRailnetwork(ILuaBase* LUA) {
 	double curtime = LUA->GetNumber(-1);
 	LUA->Pop(); //Curtime
 
-	if (g_GlobalVars) {
-		std::sprintf(path_track, "metrostroi_data/track_%s.txt", g_GlobalVars->mapname.ToCStr());
-		std::sprintf(path_signs, "metrostroi_data/signs_%s.txt", g_GlobalVars->mapname.ToCStr());
-		std::sprintf(path_sched, "metrostroi_data/sched_%s.txt", g_GlobalVars->mapname.ToCStr());
+	if (globalvars) {
+		std::sprintf(path_track, "metrostroi_data/track_%s.txt", globalvars->mapname);
+		std::sprintf(path_signs, "metrostroi_data/signs_%s.txt", globalvars->mapname);
+		std::sprintf(path_sched, "metrostroi_data/sched_%s.txt", globalvars->mapname);
 	}
 	else {
 		LUA->GetField(-1, "game");
@@ -657,7 +644,7 @@ int API_InitializeRailnetwork(ILuaBase* LUA) {
 	lua_pushcfunction(L, thread_rnrecvmessages);
 	lua_setglobal(L, "RnRecvMessages");
 
-	load(LUA, L, path_track, "DATA", "TrackLoadedData", "LUA", true); // Кажется крашит если нет таких файлов!
+	load(LUA, L, path_track, "DATA", "TrackLoadedData", "LUA", true);
 	load(LUA, L, path_signs, "DATA", "SignsLoadedData", "LUA", true);
 	load(LUA, L, path_sched, "DATA", "SchedLoadedData", "LUA", true);
 	load(LUA, L, "metrostroi/sv_turbostroi_railnetwork.lua", "LUA");
@@ -720,11 +707,11 @@ LUA_FUNCTION( API_RegisterSystem )
 LUA_FUNCTION( API_SendMessage ) 
 {
 	bool successful = true;
-	LUA->CheckType(2,Type::NUMBER);
-	LUA->CheckType(3,Type::STRING);
-	LUA->CheckType(4,Type::STRING);
-	LUA->CheckType(5,Type::NUMBER);
-	LUA->CheckType(6,Type::NUMBER);
+	LUA->CheckType(2,Type::Number);
+	LUA->CheckType(3,Type::String);
+	LUA->CheckType(4,Type::String);
+	LUA->CheckType(5,Type::Number);
+	LUA->CheckType(6,Type::Number);
 
 	LUA->GetField(1,"_sim_userdata");
 	thread_userdata* userdata = LUA->GetUserType<thread_userdata>(-1, 1);
@@ -752,10 +739,10 @@ LUA_FUNCTION( API_SendMessage )
 LUA_FUNCTION( API_RnSendMessage ) 
 {
 	bool successful = true;
-	LUA->CheckType(2, Type::NUMBER);
-	LUA->CheckType(3, Type::NUMBER);
-	LUA->CheckType(4, Type::STRING);
-	LUA->CheckType(6, Type::NUMBER);
+	LUA->CheckType(2, Type::Number);
+	LUA->CheckType(3, Type::Number);
+	LUA->CheckType(4, Type::String);
+	LUA->CheckType(6, Type::Number);
 
 	if (rn_userdata) {
 		rn_thread_msg tmsg;
@@ -851,14 +838,14 @@ LUA_FUNCTION( API_ReadAvailable )
 
 LUA_FUNCTION( API_SetSimulationFPS ) 
 {
-	LUA->CheckType(1,Type::NUMBER);
+	LUA->CheckType(1,Type::Number);
 	rate = LUA->GetNumber(1);
 	return 0;
 }
 
 LUA_FUNCTION( API_SetMTAffinityMask ) 
 {
-	LUA->CheckType(1, Type::NUMBER);
+	LUA->CheckType(1, Type::Number);
 	int MTAffinityMask = (int)LUA->GetNumber(1);
 	ConColorMsg(Color(0, 255, 0), "Turbostroi: Main Thread Running on CPU%i \n", GetCurrentProcessorNumber());
 	if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(MTAffinityMask))) {
@@ -872,7 +859,7 @@ LUA_FUNCTION( API_SetMTAffinityMask )
 
 LUA_FUNCTION( API_SetSTAffinityMask ) 
 {
-	LUA->CheckType(1, Type::NUMBER);
+	LUA->CheckType(1, Type::Number);
 	SimThreadAffinityMask = (int)LUA->GetNumber(1);
 	return 0;
 }
@@ -891,7 +878,7 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 SH_DECL_HOOK1_void(IServerGameDLL, Think, SH_NOATTRIB, 0, bool);
 static void Think_handler(bool finalTick) {
-	target_time = g_GlobalVars->curtime;
+	target_time = globalvars->curtime;
 	shared_message msg;
 	if (printMessages.pop(msg)) {
 		ConColorMsg(Color(255, 0, 255), msg.message);
@@ -909,31 +896,30 @@ void ClearLoadCache(const CCommand &command) {
 }
 
 void InitInterfaces() {
-	Sys_LoadInterface("engine", INTERFACEVERSION_VENGINESERVER, NULL, reinterpret_cast<void**>(&engineServer));
-	if (!engineServer)
-	{ 
+	g_pCVar = InterfacePointers::Cvar();
+	if (g_pCVar == NULL) {
+		ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load CVAR Interface! Trying to load old version!\n");
+		g_pCVar = cvar = icvar_loader.GetInterface<ICvar>("VEngineCvar004");
+		if (g_pCVar == NULL)
+			ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load old CVAR Interface!\n");
+	}
+
+	engineServer = InterfacePointers::VEngineServer();
+	if (engineServer == NULL)
 		ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load Engine Interface!\n");
-	}
-	Sys_LoadInterface("server", INTERFACEVERSION_SERVERGAMEDLL, NULL, reinterpret_cast<void**>(&engineServerDLL));
-	if (!engineServerDLL)
-	{
+
+	engineServerDLL = InterfacePointers::ServerGameDLL();
+	if (engineServerDLL == NULL)
 		ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load SGameDLL Interface!\n");
-	}
-	Sys_LoadInterface("server", INTERFACEVERSION_PLAYERINFOMANAGER, NULL, reinterpret_cast<void**>(&playerInfoManager));
-	if (!playerInfoManager)
-	{
+
+	playerInfoManager = server_loader.GetInterface<IPlayerInfoManager>(INTERFACEVERSION_PLAYERINFOMANAGER);
+	if (playerInfoManager == NULL)
 		ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load PlayerInfoManager Interface!\n");
-	}
-	Sys_LoadInterface("vstdlib", CVAR_INTERFACE_VERSION, NULL, reinterpret_cast<void**>(&g_pCVar));
-	if (!g_pCVar)
-	{
-		ConColorMsg(Color(255, 0, 0), "Turbostroi: Unable to load CVAR Interface!\n");
-	}
 
-	if (playerInfoManager) g_GlobalVars = playerInfoManager->GetGlobalVars();
+	if (playerInfoManager) globalvars = playerInfoManager->GetGlobalVars();
 	InstallHooks();
-
-	g_pCVar->RegisterConCommand(new ConCommand("turbostroi_clear_cache", ClearLoadCache, "Clear loaded files cache."));
+	ConCommand* pCommand = new ConCommand("turbostroi_clear_cache", ClearLoadCache, "say something", FCVAR_NOTIFY);
+	g_pCVar->RegisterConCommand(pCommand);
 }
 
 //------------------------------------------------------------------------------
@@ -945,7 +931,7 @@ GMOD_MODULE_OPEN() {
 	//Check whether being ran on server
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
 	LUA->GetField(-1,"SERVER");
-	if (LUA->IsType(-1,Type::NIL)) {
+	if (LUA->IsType(-1,Type::Nil)) {
 		LUA->GetField(-2,"Msg");
 		LUA->PushString("Metrostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
 		LUA->Call(1,0);
@@ -955,7 +941,7 @@ GMOD_MODULE_OPEN() {
 
 	//Check for global table
 	LUA->GetField(-1,"Metrostroi");
-	if (LUA->IsType(-1,Type::NIL)) {
+	if (LUA->IsType(-1,Type::Nil)) {
 		LUA->GetField(-2,"Msg");
 		LUA->PushString("Metrostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
 		LUA->Call(1,0);
@@ -971,8 +957,6 @@ GMOD_MODULE_OPEN() {
 	LUA->SetField(-2,"DeinitializeTrain");
 	LUA->PushCFunction(API_StartRailNetwork);
 	LUA->SetField(-2,"StartRailNetwork");
-	//LUA->PushCFunction(API_Think); // depricated. using engine think hook
-	//LUA->SetField(-2,"Think");
 	LUA->PushCFunction(API_SendMessage);
 	LUA->SetField(-2,"SendMessage");
 	LUA->PushCFunction(API_RnSendMessage);
@@ -994,8 +978,6 @@ GMOD_MODULE_OPEN() {
 	LUA->SetField(-2, "ReadAvailable");
 	LUA->PushCFunction(API_SetSimulationFPS);
 	LUA->SetField(-2,"SetSimulationFPS");
-	//LUA->PushCFunction(API_SetTargetTime); //deprecated. using engine think hook
-	//LUA->SetField(-2,"SetTargetTime");
 	LUA->PushCFunction(API_SetMTAffinityMask);
 	LUA->SetField(-2, "SetMTAffinityMask");
 	LUA->PushCFunction(API_SetSTAffinityMask);
