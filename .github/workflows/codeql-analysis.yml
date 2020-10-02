@@ -11,13 +11,12 @@ on:
   pull_request:
     # The branches below must be a subset of the branches above
     branches: [master]
-  schedule:
-    - cron: '0 3 * * 3'
+  workflow_dispatch:
 
 jobs:
   analyze:
     name: Analyze
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     strategy:
       fail-fast: false
