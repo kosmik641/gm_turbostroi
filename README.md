@@ -1,8 +1,9 @@
+> [Русская версия этого файла](README_ru.md)
 # Turbostroi V2 with cross-compile support
 - [x] Backwards compatibility
   - With small `sv_turbostroi_v2.lua` fix for FFI load
 - [x] Linux compile
-- [x] Use Source Engine think instead of our thread for `CurTime()`
+- [x] Use Source Engine think instead of our thread
 - [ ] Linux stable work not guaranteed
   - Need testing
 - [ ] Boost library
@@ -15,7 +16,7 @@ Replace original `sv_turbostroi_v2.lua` from this repository.
 if you don't do this, it will crash on Linux.
 
 1. Create new folder in `garrysmod/addons`
-2. Place to `lua/metrostroi` in folder *(you need to create subdirectories)*
+2. Place `lua` file to `lua/metrostroi` in your new folder *(you need to create subdirectories)*
 
 # Manual for Windows MSVC compile:
 1. Install Visual Studio 2015 or newer
@@ -47,7 +48,8 @@ apt install gcc-multilib
 2. [Get](https://premake.github.io/download) `premake5.exe` for Linux
 3. Place and run `premake5` in this folder:
 ```
-./premake5.exe gmake
+chmod +x ./premake5
+./premake5 gmake
 ```
 4. In `external/luajit/src/Makefile` find
 ```
@@ -57,7 +59,6 @@ and add `-m32` parameter:
 ```
 CC= $(DEFAULT_CC) -m32
 ```
-
 5. Run `make` in `external/luajit` directory
 6. Copy `external/luajit/src/libluajit.a` to `external/luajit/linux32`
 7. Open terminal in `projects/linux/gmake`
