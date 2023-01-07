@@ -1,4 +1,4 @@
-﻿#include "gmsv_turbostroi_win32.h"
+﻿#include "gmsv_turbostroi.h"
 
 #include "lua.hpp"
 

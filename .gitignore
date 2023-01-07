@@ -426,3 +426,6 @@ premake5
 
 # Premake folder
 projects/*
+
+# Develop things
+clean.bat
