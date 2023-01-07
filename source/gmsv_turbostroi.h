@@ -18,6 +18,8 @@
 #pragma warning Unknown dynamic link import/export semantics.
 #endif
 
+#define PushCFunc(_function,_name) LUA->PushCFunction(_function); LUA->SetField(-2, _name)
+
 #define BUFFER_SIZE 131072
 #define QUEUE_SIZE 32768
 
@@ -39,13 +41,13 @@
 #include <convar.h>
 #include <Color.h>
 
-typedef struct {
+struct thread_msg {
 	int message;
 	char system_name[64];
 	char name[64];
 	double index;
 	double value;
-} thread_msg;
+};
 
 struct thread_userdata {
 	double current_time;
