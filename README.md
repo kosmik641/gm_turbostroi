@@ -14,6 +14,9 @@
 Replace original `sv_turbostroi_v2.lua` from this repository.
 if you don't do this, it will crash on Linux.
 
+1. Create new folder in `garrysmod/addons`
+2. Place to `lua/metrostroi` in folder *(you need to create subdirectories)*
+
 # Manual for Windows MSVC compile:
 1. Install Visual Studio 2015 or newer
 2. [Get](https://premake.github.io/download) `premake5.exe` for Windows
