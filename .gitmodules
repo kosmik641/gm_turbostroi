@@ -1,0 +1,6 @@
+[submodule "external/garrysmod_common"]
+	path = external/garrysmod_common
+	url = https://github.com/danielga/garrysmod_common.git
+[submodule "external/luajit"]
+	path = external/luajit
+	url = https://github.com/LuaJIT/LuaJIT.git
