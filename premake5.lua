@@ -19,21 +19,30 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 			["Source files/*"] = "source/*.cpp"
 		})
 		
-
+		-- TODO: Autocompile luajit in MSVC/GCC
+		
+		-- Windows
+		filter("system:windows")
+			links("lua51", "luajit")
+			
 		filter({"system:windows", "architecture:x86"})
 			libdirs("external/luajit/x86")
 			
 		filter({"system:windows", "architecture:x86_64"})
 			libdirs("external/luajit/x64")
 
-		filter("system:windows or macosx")
-			links("lua51", "luajit")
-
+		-- Linux GCC
+		filter("system:linux")
+			links("dl")
+			linkoptions("-pthread")
+			
 		filter({"system:linux", "architecture:x86"})
+			links("luajit")
 			libdirs("external/luajit/linux32")
-			links("lua51", "luajit")
 
 		filter({"system:linux", "architecture:x86_64"})
-			links("lua51", "luajit")
+			links("luajit")
+			libdirs("external/luajit/linux64")
+			
 
 		filter({})
