@@ -6,8 +6,8 @@
 - [x] Use Source Engine think instead of our thread
 - [ ] Linux stable work not guaranteed
   - Need testing
-- [ ] Boost library
-  - for lock_free queue, spsc_queue
+- [ ] Lock-free queue and spsc_queue use
+  - Mutex is slow
 - [ ] Optimization
 - [ ] Code refactoring 
 
