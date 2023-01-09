@@ -41,6 +41,17 @@
 #include <convar.h>
 #include <Color.h>
 
+struct train_system {
+	train_system(std::string sysName, std::string sysFileName)
+	{
+		BaseName = std::move(sysName);
+		FileName = std::move(sysFileName);
+	}
+
+	std::string BaseName;
+	std::string FileName; // Can be local name of loaded system
+};
+
 struct thread_msg {
 	int message;
 	char system_name[64];

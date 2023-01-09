@@ -42,17 +42,18 @@ static void stackDump(lua_State *L) {
 //------------------------------------------------------------------------------
 // Shared thread printing stuff
 //------------------------------------------------------------------------------
+bool ForceThreadsFinished = false; // For correct unrequire module
 double TargetTime = 0.0;
 int ThreadTickrate = 10;
-char MetrostroiSysmesList[BUFFER_SIZE] = { 0 };
-char LoadSystemsList[BUFFER_SIZE] = { 0 };
 int SimThreadAffinityMask = 0;
+std::vector<train_system> MetrostroiSystemList;
+std::queue<train_system> LoadSystemList;
 std::map<std::string, std::string> LoadedFilesCache;
 
 //------------------------------------------------------------------------------
 // Turbostroi sim thread API
 //------------------------------------------------------------------------------
-std::queue <shared_message> SharedMessagesQueue;
+std::queue<shared_message> SharedMessagesQueue;
 std::mutex SharedMessagesMutex;
 int shared_print(lua_State* L) {
 	int n = lua_gettop(L);
@@ -186,45 +187,27 @@ void threadSimulation(thread_userdata* userdata) {
 	}
 
 	lua_State* L = userdata->L;
+	
+	while (!ForceThreadsFinished && userdata && !userdata->finished) {
+		lua_pushnumber(L, Plat_FloatTime());
+		lua_setglobal(L, "CurrentTime");
 
-	while (userdata && !userdata->finished) {
-		lua_settop(L,0);
-
-		//Simulate one step
-		if (userdata->current_time < TargetTime) {
+		bool needThink = (userdata->current_time < TargetTime);
+		if (needThink)
 			userdata->current_time = TargetTime;
-			lua_pushnumber(L, Plat_FloatTime());
-			lua_setglobal(L, "CurrentTime");
 
-			//Execute think
-			lua_getglobal(L,"Think");
-			lua_pushboolean(L, false);
-			if (lua_pcall(L, 1, 0, 0)) {
-				std::string err = lua_tostring(L, -1);
-				err += "\n";
-				shared_message msg;
-				strcpy(msg.message, err.c_str());
-				std::unique_lock<std::mutex> lock(SharedMessagesMutex);
-				SharedMessagesQueue.push(msg);
-				lock.unlock();
-			}
-		}
-		else {
-			//Execute think
-			lua_pushnumber(L, Plat_FloatTime());
-			lua_setglobal(L, "CurrentTime");
+		lua_getglobal(L, "Think");
+		lua_pushboolean(L, !needThink);
+		if (lua_pcall(L, 1, 0, 0)) {
+			std::string err = lua_tostring(L, -1);
+			err += "\n";
+			shared_message msg;
+			strcpy(msg.message, err.c_str());
+			lua_pop(L, 1);
 
-			lua_getglobal(L, "Think");
-			lua_pushboolean(L, true);
-			if (lua_pcall(L, 1, 0, 0)) {
-				std::string err = lua_tostring(L, -1);
-				err += "\n";
-				shared_message msg;
-				strcpy(msg.message, err.c_str());
-				std::unique_lock<std::mutex> lock(SharedMessagesMutex);
-				SharedMessagesQueue.push(msg);
-				lock.unlock();
-			}
+			std::unique_lock<std::mutex> lock(SharedMessagesMutex);
+			SharedMessagesQueue.push(msg);
+			lock.unlock();
 		}
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(ThreadTickrate));
@@ -241,7 +224,7 @@ void threadSimulation(thread_userdata* userdata) {
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
 //------------------------------------------------------------------------------
-void load(GarrysMod::Lua::ILuaBase* LUA, lua_State* L, const char* filename, const char* path, const char* variable = NULL, const char* defpath = NULL, bool json = false) {
+void load(GarrysMod::Lua::ILuaBase* LUA, lua_State* L, const char* filename, const char* path) {
 	//Load up "sv_turbostroi.lua" in the new JIT environment
 	const char* file_data = NULL;
 	auto cache_item = LoadedFilesCache.find(filename);
@@ -250,66 +233,28 @@ void load(GarrysMod::Lua::ILuaBase* LUA, lua_State* L, const char* filename, con
 	}
 	else {
 		LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-		LUA->GetField(-1, "file");
-		LUA->GetField(-1, "Read");
-		LUA->PushString(filename);
-		LUA->PushString(path);
-		LUA->Call(2, 1); //file.Read(...)
-		if (LUA->GetString(-1)) {
-			file_data = LUA->GetString(-1);
-			LoadedFilesCache.emplace(filename, file_data);
-		}
-		LUA->Pop(); //returned result
-		LUA->Pop(); //file
+			LUA->GetField(-1, "file");
+				LUA->GetField(-1, "Read");
+					LUA->PushString(filename);
+					LUA->PushString(path);
+				LUA->Call(2, 1); //file.Read(...)
+
+				if (LUA->GetString(-1)) {
+					file_data = LUA->GetString(-1);
+					LoadedFilesCache.emplace(filename, file_data);
+				}
+				LUA->Pop(); //returned result
+			LUA->Pop(); //file
 		LUA->Pop(); //GLOB
 	}
 
 	if (file_data) {
-		if (!variable) {
-			if (luaL_loadbuffer(L, file_data, strlen(file_data), filename) || lua_pcall(L, 0, LUA_MULTRET, 0)) {
-				ConColorMsg(Color(255, 0, 127, 255), lua_tostring(L, -1));
-				lua_pop(L, 1);
-			}
-		} else {
-			if (!json) {
-				lua_pushstring(L, file_data);
-				lua_setglobal(L, variable);
-			}
-			else {
-				LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-				LUA->GetField(-1, "table");
-				LUA->GetField(-1, "ToString");
-				LUA->Remove(-2);
-				LUA->GetField(-2, "table");
-				LUA->GetField(-1, "Sanitise");
-				LUA->Remove(-2);
-				LUA->GetField(-3, "util");
-				LUA->GetField(-1, "JSONToTable");
-				LUA->Remove(-2);
-				LUA->PushString(file_data);
-				LUA->Call(1, 1);
-				LUA->Call(1, 1);
-				LUA->PushString(variable);
-				LUA->PushBool(false);
-				LUA->Call(3, 1);
-
-				if (luaL_loadbuffer(L, LUA->GetString(-1), strlen(LUA->GetString(-1)), filename) || lua_pcall(L, 0, LUA_MULTRET, 0)) {
-					ConColorMsg(Color(255, 0, 127, 255), lua_tostring(L, -1));
-					lua_pop(L, 1);
-				}
-
-				LUA->Pop(); //returned result
-				LUA->Pop(); //GLOB
-			}
+		if (luaL_loadbuffer(L, file_data, strlen(file_data), filename) || lua_pcall(L, 0, LUA_MULTRET, 0)) {
+			ConColorMsg(Color(255, 0, 127, 255), "%s\n", lua_tostring(L, -1));
+			lua_pop(L, 1);
 		}
 	} else {
-		if (defpath) {
-			ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s' in '%s' path) Trying to load default file in '%s' path\n", filename, path, defpath);
-			load(LUA, L, filename, defpath, variable, NULL, json);
-		}
-		else {
-			ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s' in '%s' path)\n", filename, path);
-		}
+		ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s' in '%s' path)\n", filename, path);
 	}
 }
 
@@ -331,32 +276,19 @@ LUA_FUNCTION( API_InitializeTrain )
 	load(LUA, L, "metrostroi/sh_failsim.lua", "LUA");
 
 	//Load up all the systems
-	char* systems = MetrostroiSysmesList;
-	while (systems[0]) {
-		char filename[8192] = { 0 };
-		char* system_name = systems;
-		char* system_path = strchr(systems, '\n') + 1;
-
-		strncpy(filename, system_path, strchr(system_path, '\n') - system_path);
-		load(LUA, L, filename, "LUA");
-		systems = system_path + strlen(filename) + 1;
+	for (train_system sys : MetrostroiSystemList)
+	{
+		load(LUA, L, sys.FileName.c_str(), "LUA");
 	}
 
 	//Initialize all the systems reported by the train
-	systems = LoadSystemsList;
-	while (systems[0]) {
-		char* system_name = systems;
-		char* system_type = strchr(systems, '\n') + 1;
-		*(strchr(system_name, '\n')) = 0;
-		*(strchr(system_type, '\n')) = 0;
-
+	while (!LoadSystemList.empty())
+	{
+		train_system sys = LoadSystemList.front(); LoadSystemList.pop();
 		lua_getglobal(L, "LoadSystems");
-		lua_pushstring(L, system_type);
-		lua_setfield(L, -2, system_name);
-
-		systems = system_type + strlen(system_type) + 1;
+		lua_pushstring(L, sys.BaseName.c_str());
+		lua_setfield(L, -2, sys.FileName.c_str());
 	}
-	LoadSystemsList[0] = 0;
 
 	//Initialize systems
 	lua_getglobal(L, "Initialize");
@@ -387,8 +319,8 @@ LUA_FUNCTION( API_InitializeTrain )
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
 	LUA->GetField(1,"_sim_userdata");
-	thread_userdata* userdata = LUA->GetUserType<thread_userdata>(-1, 1);
-	if (userdata) userdata->finished = 1;
+		thread_userdata* userdata = LUA->GetUserType<thread_userdata>(-1, 1);
+		if (userdata) userdata->finished = 1;
 	LUA->Pop();
 
 	LUA->PushNil();
@@ -404,10 +336,7 @@ LUA_FUNCTION( API_LoadSystem )
 	if (!basename || !name)
 		return 0;
 
-	strncat(LoadSystemsList, basename,131071);
-	strncat(LoadSystemsList,"\n",131071);
-	strncat(LoadSystemsList, name,131071);
-	strncat(LoadSystemsList,"\n",131071);
+	LoadSystemList.emplace(name, basename);
 	return 0;
 }
 
@@ -418,11 +347,8 @@ LUA_FUNCTION( API_RegisterSystem )
 	if (!name || !filename)
 		return 0;
 	
-	strncat(MetrostroiSysmesList, name,131071);
-	strncat(MetrostroiSysmesList,"\n",131071);
-	strncat(MetrostroiSysmesList, filename,131071);
-	strncat(MetrostroiSysmesList,"\n",131071);
-	ConMsg("Metrostroi: Registering system %s [%s]\n", name, filename);
+	MetrostroiSystemList.emplace_back(name, filename);
+	ConMsg("Turbostroi: Registering system %s [%s]\n", name, filename);
 	return 0;
 }
 
@@ -448,6 +374,7 @@ LUA_FUNCTION( API_SendMessage )
 		tmsg.name[63] = 0;
 		tmsg.index = LUA->GetNumber(5);
 		tmsg.value = LUA->GetNumber(6);
+
 		std::unique_lock<std::mutex> lock(userdata->sim_to_thread_mutex);
 		userdata->sim_to_thread.push(tmsg);
 		successful = true;
@@ -602,20 +529,11 @@ void InstallHooks(ILuaBase* LUA) {
 }
 
 void ClearLoadCache(const CCommand &command) {
-	if (!strcmp(command.Arg(1), "1"))
-	{
-		ConMsg("Files in cache:\n");
-		if (LoadedFilesCache.empty())
-			ConMsg("\tNo files in cache.\n");
-		else
-		{
-			for (const auto& [key, value] : LoadedFilesCache) {
-				ConMsg("\t%s\n", key.c_str());
-			}
-		}
-	}
-	LoadedFilesCache.clear();
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cache cleared!\n");
+	auto cacheSize = LoadedFilesCache.size();
+	if (LoadedFilesCache.empty())
+		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: No files in cache. Nothing to clear.\n");
+	else
+		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cleared %d files in cache!\n", cacheSize);
 }
 
 void InitInterfaces() {
@@ -639,7 +557,7 @@ GMOD_MODULE_OPEN() {
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
 		LUA->GetField(-1,"SERVER");
 		if (LUA->IsType(-1,Type::Nil)) {
-			ConMsg("Metrostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
+			ConMsg("Turbostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
 			return 0;
 		}
 		LUA->Pop(); //SERVER
@@ -647,7 +565,7 @@ GMOD_MODULE_OPEN() {
 		//Check for global table
 		LUA->GetField(-1,"Metrostroi");
 		if (LUA->IsType(-1,Type::Nil)) {
-			ConMsg("Metrostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
+			ConMsg("Turbostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
 			return 0;
 		}
 		LUA->Pop(); //Metrostroi
@@ -675,10 +593,10 @@ GMOD_MODULE_OPEN() {
 	LUA->Pop();
 
 	//Print some information
-	ConMsg("Metrostroi: DLL initialized (built " __DATE__ ")\n");
-	ConMsg("Metrostroi: Running with %i cores\n", std::thread::hardware_concurrency());
+	ConMsg("Turbostroi: DLL initialized (built " __DATE__ ")\n");
+	ConMsg("Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
 
-	// TODO
+	// TODO for lock-free
 	//if (!printMessages.is_lock_free()) {
 	//	ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Not fully supported! \n");
 	//}
@@ -690,6 +608,7 @@ GMOD_MODULE_OPEN() {
 // Deinitialization
 //------------------------------------------------------------------------------
 GMOD_MODULE_CLOSE() {
+	ForceThreadsFinished = true;
 	if (p_ICvar != nullptr)
 	{
 		ConCommand* cmd = p_ICvar->FindCommand("turbostroi_clear_cache");
@@ -700,10 +619,16 @@ GMOD_MODULE_CLOSE() {
 
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
 		LUA->GetField(-1, "Metrostroi");
-		if (LUA->IsType(-1, Type::Table)) {
-			LUA->CreateTable();
-			LUA->SetField(-2, "TurbostroiRegistered");
-		}
+			if (LUA->IsType(-1, Type::Table)) {
+				LUA->CreateTable();
+				LUA->SetField(-2, "TurbostroiRegistered");
+			}
+		LUA->Pop();
+		LUA->GetField(-1, "hook");
+			LUA->GetField(-1, "Remove");
+				LUA->PushString("Think");
+				LUA->PushString("Turbostroi_TargetTimeSync");
+				LUA->Call(2, 0);
 	LUA->Pop(2);
 	
 	LUA->PushNil();
