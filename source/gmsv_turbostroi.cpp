@@ -1,12 +1,5 @@
 ﻿#include "gmsv_turbostroi.h"
 using namespace GarrysMod::Lua;
-
-//------------------------------------------------------------------------------
-// SourceSDK
-//------------------------------------------------------------------------------
-static SourceSDK::FactoryLoader icvar_loader("vstdlib");
-static ICvar* p_ICvar = nullptr;
-
 //------------------------------------------------------------------------------
 // Lua Utils
 //------------------------------------------------------------------------------
@@ -168,7 +161,6 @@ void threadSimulation(thread_userdata* userdata) {
 
 	if (SimThreadAffinityMask)
 	{
-
 #if defined(_WIN32)
 		if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(SimThreadAffinityMask))) {
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: SetSTAffinityMask failed on train thread!\n");
@@ -533,11 +525,21 @@ void ClearLoadCache(const CCommand &command) {
 	if (LoadedFilesCache.empty())
 		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: No files in cache. Nothing to clear.\n");
 	else
+	{
+		LoadedFilesCache.clear();
 		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cleared %d files in cache!\n", cacheSize);
+	}
+		
 }
 
+//------------------------------------------------------------------------------
+// SourceSDK
+//------------------------------------------------------------------------------
+static SourceSDK::FactoryLoader ICvar_Loader("vstdlib");
+static ICvar* p_ICvar = nullptr;
+
 void InitInterfaces() {
-	p_ICvar = icvar_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
+	p_ICvar = ICvar_Loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
 	if (p_ICvar == nullptr)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load CVAR Interface!\n");
