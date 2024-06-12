@@ -28,14 +28,14 @@ premake5.exe vs2022
 - `vs2019` для Visual Studio 2019
 - `vs2022` для Visual Studio 2022
 4. Запустите `x86 Native Tools Command Prompt for VS`
-5. Перейдите в этой консолие в `external\luajit\src` 
+5. Перейдите в этой консоли в `external\luajit\src` 
 6. Введите команду:
 ```
 msvcbuild.bat static
 ```
 7. Скопируйте `lua51.lib` в `external\luajit\x86`
 8. Откройте `projects\windows\vs2022\turbostroi.sln`
-9. Скомпилируте с `Release/Win32` конфигурацией
+9. Скомпилируйте с `Release/Win32` конфигурацией
 10. Скопируйте `projects\windows\vs2022\x86\Release\gmsv_turbostroi_win32.dll` в `GarrysModDS\garrysmod\lua\bin` (создайте папку `bin`, если её нет)
 
 # Компиляция под Linux GCC:
