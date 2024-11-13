@@ -20,9 +20,6 @@
 
 #define PushCFunc(_function,_name) LUA->PushCFunction(_function); LUA->SetField(-2, _name)
 
-#define BUFFER_SIZE 131072
-#define QUEUE_SIZE 32768
-
 // STD
 #include <thread>
 #include <string>
@@ -39,7 +36,7 @@
 #include <GarrysMod/Lua/Interface.h>
 #include <eiface.h>
 #include <convar.h>
-#include <Color.h>
+#include <color.h>
 
 struct train_system {
 	train_system(std::string sysName, std::string sysFileName)

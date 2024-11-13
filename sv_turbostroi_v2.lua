@@ -231,21 +231,6 @@ typedef struct {
 thread_msg ThreadRecvMessage(void* p);
 ]]
 
--- local OSName = "gmsv_turbostroi_"
-
--- if jit.os == "Windows" then
-	-- OSName = OSName.."win"
--- elseif jit.os == "Linux" then
-	-- OSName = OSName.."linux"
--- end
-
--- if jit.arch == "x86" then
-	-- OSName = OSName.."32"
--- else
-	-- OSName = OSName.."64"
--- end
-
-
 local TS = ffi.load(OSName)
 
 Metrostroi = {}
@@ -406,8 +391,8 @@ function Initialize()
     if not CurrentTime then return end
     print("[!] Loading systems")
     local time = os.clock()
-    for k,v in pairs(LoadSystems) do
-        GlobalTrain:LoadSystem(k,v)
+    for k,v in ipairs(LoadSystems) do
+        GlobalTrain:LoadSystem(v[1],v[2])
     end
     print(string.format("[!] -Took %.2fs",os.clock()-time))
     GlobalTrain.PrevTime = CurrentTime

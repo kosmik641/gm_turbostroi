@@ -1,53 +1,21 @@
 ﻿#include "gmsv_turbostroi.h"
 using namespace GarrysMod::Lua;
 //------------------------------------------------------------------------------
-// Lua Utils
-//------------------------------------------------------------------------------
-static void stackDump(lua_State *L) {
-	int i;
-	int top = lua_gettop(L);
-	for (i = 1; i <= top; i++) {  /* repeat for each level */
-		int t = lua_type(L, i);
-		switch (t) {
-
-		case LUA_TSTRING:  /* strings */
-			ConColorMsg(Color(255, 0, 0, 255), "`%s'", lua_tostring(L, i));
-			break;
-
-		case LUA_TBOOLEAN:  /* booleans */
-			ConColorMsg(Color(255, 0, 0, 255), lua_toboolean(L, i) ? "true" : "false");
-			break;
-
-		case LUA_TNUMBER:  /* numbers */
-			ConColorMsg(Color(255, 0, 0, 255), "%g", lua_tonumber(L, i));
-			break;
-
-		default:  /* other values */
-			ConColorMsg(Color(255, 0, 0, 255), "%s", lua_typename(L, t));
-			break;
-
-		}
-		ConColorMsg(Color(255, 0, 0, 255), "  ");  /* put a separator */
-	}
-	ConColorMsg(Color(255, 0, 0, 255), "\n");  /* end the listing */
-}
-
-//------------------------------------------------------------------------------
 // Shared thread printing stuff
 //------------------------------------------------------------------------------
-bool ForceThreadsFinished = false; // For correct unrequire module
-double TargetTime = 0.0;
-int ThreadTickrate = 10;
-int SimThreadAffinityMask = 0;
-std::vector<train_system> MetrostroiSystemList;
-std::queue<train_system> LoadSystemList;
-std::map<std::string, std::string> LoadedFilesCache;
+bool g_ForceThreadsFinished = false; // For correct unrequire module
+double g_TargetTime = 0.0;
+int g_ThreadTickrate = 10;
+int g_SimThreadAffinityMask = 0;
+std::vector<train_system> g_MetrostroiSystemList;
+std::queue<train_system> g_LoadSystemList;
+std::map<std::string, std::string> g_LoadedFilesCache;
 
 //------------------------------------------------------------------------------
 // Turbostroi sim thread API
 //------------------------------------------------------------------------------
-std::queue<shared_message> SharedMessagesQueue;
-std::mutex SharedMessagesMutex;
+std::queue<shared_message> g_SharedMessagesQueue;
+std::mutex g_SharedMessagesMutex;
 int shared_print(lua_State* L) {
 	int n = lua_gettop(L);
 	int i;
@@ -84,8 +52,8 @@ int shared_print(lua_State* L) {
 	char tempbuffer[512] = { 0 };
 	strncat(tempbuffer, buffer, (512 - 1) - strlen(buffer));
 	strcpy(msg.message, tempbuffer);
-	std::unique_lock<std::mutex> lock(SharedMessagesMutex);
-	SharedMessagesQueue.push(msg);
+	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	g_SharedMessagesQueue.push(msg);
 	return 0;
 }
 
@@ -159,10 +127,10 @@ extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p) {
 //------------------------------------------------------------------------------
 void threadSimulation(thread_userdata* userdata) {
 
-	if (SimThreadAffinityMask)
+	if (g_SimThreadAffinityMask)
 	{
 #if defined(_WIN32)
-		if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(SimThreadAffinityMask))) {
+		if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(g_SimThreadAffinityMask))) {
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: SetSTAffinityMask failed on train thread!\n");
 		}
 #elif defined(POSIX)
@@ -170,7 +138,7 @@ void threadSimulation(thread_userdata* userdata) {
 		CPU_ZERO(&cpuSet);
 
 		for (int i = 0; i < 32; i++)
-			if (SimThreadAffinityMask & (1 << i))
+			if (g_SimThreadAffinityMask & (1 << i))
 				CPU_SET(i, &cpuSet);
 
 		if (sched_setaffinity(getpid(), sizeof(cpuSet), &cpuSet))
@@ -180,13 +148,13 @@ void threadSimulation(thread_userdata* userdata) {
 
 	lua_State* L = userdata->L;
 	
-	while (!ForceThreadsFinished && userdata && !userdata->finished) {
+	while (!g_ForceThreadsFinished && userdata && !userdata->finished) {
 		lua_pushnumber(L, Plat_FloatTime());
 		lua_setglobal(L, "CurrentTime");
 
-		bool needThink = (userdata->current_time < TargetTime);
+		bool needThink = (userdata->current_time < g_TargetTime);
 		if (needThink)
-			userdata->current_time = TargetTime;
+			userdata->current_time = g_TargetTime;
 
 		lua_getglobal(L, "Think");
 		lua_pushboolean(L, !needThink);
@@ -197,12 +165,12 @@ void threadSimulation(thread_userdata* userdata) {
 			strcpy(msg.message, err.c_str());
 			lua_pop(L, 1);
 
-			std::unique_lock<std::mutex> lock(SharedMessagesMutex);
-			SharedMessagesQueue.push(msg);
+			std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+			g_SharedMessagesQueue.push(msg);
 			lock.unlock();
 		}
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(ThreadTickrate));
+		std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate));
 	}
 
 	//Release resources
@@ -219,8 +187,8 @@ void threadSimulation(thread_userdata* userdata) {
 void load(GarrysMod::Lua::ILuaBase* LUA, lua_State* L, const char* filename, const char* path) {
 	//Load up "sv_turbostroi.lua" in the new JIT environment
 	const char* file_data = NULL;
-	auto cache_item = LoadedFilesCache.find(filename);
-	if (cache_item != LoadedFilesCache.end()) {
+	auto cache_item = g_LoadedFilesCache.find(filename);
+	if (cache_item != g_LoadedFilesCache.end()) {
 		file_data = cache_item->second.c_str();
 	}
 	else {
@@ -233,7 +201,7 @@ void load(GarrysMod::Lua::ILuaBase* LUA, lua_State* L, const char* filename, con
 
 				if (LUA->GetString(-1)) {
 					file_data = LUA->GetString(-1);
-					LoadedFilesCache.emplace(filename, file_data);
+					g_LoadedFilesCache.emplace(filename, file_data);
 				}
 				LUA->Pop(); //returned result
 			LUA->Pop(); //file
@@ -268,18 +236,31 @@ LUA_FUNCTION( API_InitializeTrain )
 	load(LUA, L, "metrostroi/sh_failsim.lua", "LUA");
 
 	//Load up all the systems
-	for (train_system sys : MetrostroiSystemList)
+	for (train_system sys : g_MetrostroiSystemList)
 	{
 		load(LUA, L, sys.FileName.c_str(), "LUA");
 	}
 
 	//Initialize all the systems reported by the train
-	while (!LoadSystemList.empty())
+	int i = 1;
+	while (!g_LoadSystemList.empty())
 	{
-		train_system sys = LoadSystemList.front(); LoadSystemList.pop();
+		train_system sys = g_LoadSystemList.front(); g_LoadSystemList.pop();
+
 		lua_getglobal(L, "LoadSystems");
-		lua_pushstring(L, sys.BaseName.c_str());
-		lua_setfield(L, -2, sys.FileName.c_str());
+			lua_newtable(L);
+				lua_pushnumber(L, 1);
+				lua_pushstring(L, sys.FileName.c_str());
+			lua_settable(L, -3);
+
+				lua_pushnumber(L, 2);
+				lua_pushstring(L, sys.BaseName.c_str());
+			lua_settable(L, -3);
+
+				lua_pushnumber(L, i++);
+				lua_pushvalue(L, -2);
+			lua_settable(L, -4); // [i] = {sys.FileName,sys.BaseName}
+		lua_pop(L, 1);
 	}
 
 	//Initialize systems
@@ -328,7 +309,7 @@ LUA_FUNCTION( API_LoadSystem )
 	if (!basename || !name)
 		return 0;
 
-	LoadSystemList.emplace(name, basename);
+	g_LoadSystemList.emplace(name, basename);
 	return 0;
 }
 
@@ -339,7 +320,7 @@ LUA_FUNCTION( API_RegisterSystem )
 	if (!name || !filename)
 		return 0;
 	
-	MetrostroiSystemList.emplace_back(name, filename);
+	g_MetrostroiSystemList.emplace_back(name, filename);
 	ConMsg("Turbostroi: Registering system %s [%s]\n", name, filename);
 	return 0;
 }
@@ -442,8 +423,8 @@ LUA_FUNCTION( API_SetSimulationFPS )
 	if (!FPS)
 		return 0;
 
-	ThreadTickrate = 1000 / FPS;
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to %d FPS (%d ms delay)\n", (int)(FPS + 0.5), ThreadTickrate);
+	g_ThreadTickrate = 1000 / FPS;
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to %d FPS (%d ms delay)\n", (int)(FPS + 0.5), g_ThreadTickrate);
 	return 0;
 }
 
@@ -481,8 +462,8 @@ LUA_FUNCTION( API_SetMTAffinityMask )
 LUA_FUNCTION( API_SetSTAffinityMask ) 
 {
 	LUA->CheckType(1, Type::Number);
-	SimThreadAffinityMask = LUA->GetNumber(1);
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Assign Train Threads affinity to %d\n", SimThreadAffinityMask);
+	g_SimThreadAffinityMask = LUA->GetNumber(1);
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Assign Train Threads affinity to %d\n", g_SimThreadAffinityMask);
 	return 0;
 }
 
@@ -495,14 +476,14 @@ LUA_FUNCTION( API_StartRailNetwork )
 // Initialization SourceSDK
 //------------------------------------------------------------------------------
 LUA_FUNCTION(Think_handler) {
-	TargetTime = Plat_FloatTime();
+	g_TargetTime = Plat_FloatTime();
 	
-	std::unique_lock<std::mutex> lock(SharedMessagesMutex);
-	if (!SharedMessagesQueue.empty())
+	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	if (!g_SharedMessagesQueue.empty())
 	{
-		shared_message msg = SharedMessagesQueue.front();
+		shared_message msg = g_SharedMessagesQueue.front();
 		ConColorMsg(Color(255, 0, 255, 255), msg.message);
-		SharedMessagesQueue.pop();
+		g_SharedMessagesQueue.pop();
 	}
 
 	return 0;
@@ -521,15 +502,19 @@ void InstallHooks(ILuaBase* LUA) {
 }
 
 void ClearLoadCache(const CCommand &command) {
-	auto cacheSize = LoadedFilesCache.size();
-	if (LoadedFilesCache.empty())
+	auto cacheSize = g_LoadedFilesCache.size();
+	if (g_LoadedFilesCache.empty())
 		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: No files in cache. Nothing to clear.\n");
 	else
 	{
-		LoadedFilesCache.clear();
+		g_LoadedFilesCache.clear();
 		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cleared %d files in cache!\n", cacheSize);
-	}
-		
+	}	
+}
+
+void ClearPrintQueue(const CCommand& command) {
+	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	while(!g_SharedMessagesQueue.empty()) g_SharedMessagesQueue.pop();
 }
 
 //------------------------------------------------------------------------------
@@ -546,8 +531,10 @@ void InitInterfaces() {
 		return;
 	}
 
-	ConCommand* pCommand = new ConCommand("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems", FCVAR_NOTIFY);
-	p_ICvar->RegisterConCommand(pCommand);
+	ConCommand* pClearCacheCommand = new ConCommand("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems", FCVAR_NOTIFY);
+	ConCommand* pClearPrintCommand = new ConCommand("turbostroi_clear_print", ClearPrintQueue, "Clear print queue", FCVAR_NOTIFY);
+	p_ICvar->RegisterConCommand(pClearCacheCommand);
+	p_ICvar->RegisterConCommand(pClearPrintCommand);
 }
 
 //------------------------------------------------------------------------------
@@ -610,10 +597,16 @@ GMOD_MODULE_OPEN() {
 // Deinitialization
 //------------------------------------------------------------------------------
 GMOD_MODULE_CLOSE() {
-	ForceThreadsFinished = true;
+	g_ForceThreadsFinished = true;
 	if (p_ICvar != nullptr)
 	{
 		ConCommand* cmd = p_ICvar->FindCommand("turbostroi_clear_cache");
+		if (cmd != nullptr) {
+			p_ICvar->UnregisterConCommand(cmd);
+		}
+
+		cmd = p_ICvar->FindCommand("turbostroi_clear_print");
+		cmd->Dispatch(CCommand());
 		if (cmd != nullptr) {
 			p_ICvar->UnregisterConCommand(cmd);
 		}
