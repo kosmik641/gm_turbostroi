@@ -58,6 +58,15 @@ int shared_print(lua_State* L) {
 	return 0;
 }
 
+void shared_print(const char* str)
+{
+	shared_message msg;
+	snprintf(msg.message, sizeof(msg.message), "%s", str);
+	g_SharedMessagesMutex.lock();
+	g_SharedMessagesQueue.push(msg);
+	g_SharedMessagesMutex.unlock();
+}
+
 extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value) {
 	bool successful = false;
 
@@ -154,7 +163,7 @@ void threadSimulation(thread_userdata* userdata) {
 
 	if (userdata == nullptr)
 	{
-		ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Fail to get thread userdata!\n");
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to get thread userdata!\n");
 		return;
 	}
 	
@@ -173,22 +182,15 @@ void threadSimulation(thread_userdata* userdata) {
 		if (lua_pcall(L, 1, 0, 0)) {
 			std::string err = lua_tostring(L, -1);
 			err += "\n";
-			shared_message msg;
-			strcpy(msg.message, err.c_str());
+			shared_print(err.c_str());
 			lua_pop(L, 1);
-
-			g_SharedMessagesMutex.lock();
-			g_SharedMessagesQueue.push(msg);
-			g_SharedMessagesMutex.unlock();
 		}
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate));
 	}
 
 	//Release resources
-	lua_pushcfunction(L,shared_print);
-	lua_pushstring(L,"[!] Terminating train thread");
-	lua_call(L,1,0);
+	shared_print("[!] Terminating train thread\n");
 	lua_close(L);
 	delete userdata;
 }
@@ -278,9 +280,9 @@ LUA_FUNCTION( API_InitializeTrain )
 	//Initialize systems
 	lua_getglobal(L, "Initialize");
 	if (lua_pcall(L, 0, 0, 0)) {
-		lua_pushcfunction(L, shared_print);
-		lua_pushvalue(L, -2);
-		lua_call(L, 1, 0);
+		std::string err = lua_tostring(L, -1);
+		err += "\n";
+		shared_print(err.c_str());
 		lua_pop(L, 1);
 	}
 
@@ -333,7 +335,7 @@ LUA_FUNCTION( API_RegisterSystem )
 		return 0;
 	
 	g_MetrostroiSystemList.emplace_back(name, filename);
-	ConMsg("Turbostroi: Registering system %s [%s]\n", name, filename);
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Registering system %s [%s]\n", name, filename);
 	return 0;
 }
 
@@ -565,7 +567,7 @@ GMOD_MODULE_OPEN() {
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
 		LUA->GetField(-1,"SERVER");
 		if (LUA->IsType(-1,Type::Nil)) {
-			ConMsg("Turbostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
+			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
 			return 0;
 		}
 		LUA->Pop(); //SERVER
@@ -573,7 +575,7 @@ GMOD_MODULE_OPEN() {
 		//Check for global table
 		LUA->GetField(-1,"Metrostroi");
 		if (LUA->IsType(-1,Type::Nil)) {
-			ConMsg("Turbostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
+			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
 			return 0;
 		}
 		LUA->Pop(); //Metrostroi
