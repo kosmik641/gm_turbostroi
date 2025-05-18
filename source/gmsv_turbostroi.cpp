@@ -235,7 +235,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	//Initialize LuaJIT for train
 	lua_State* L = luaL_newstate();
 	luaL_openlibs(L);
-	luaopen_bit(L);
+
 	lua_pushboolean(L, 1);
 	lua_setglobal(L, "TURBOSTROI");
 	lua_pushcfunction(L, shared_print);
@@ -272,7 +272,7 @@ LUA_FUNCTION( API_InitializeTrain )
 				lua_pushnumber(L, i++);
 				lua_pushvalue(L, -2);
 			lua_settable(L, -4); // [i] = {sys.FileName,sys.BaseName}
-		lua_pop(L, 1);
+		lua_pop(L, 2);
 	}
 
 	//Initialize systems
