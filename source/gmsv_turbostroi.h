@@ -25,7 +25,6 @@
 #include <string>
 #include <queue>
 #include <map>
-#include <mutex>
 #include <vector>
 
 // LuaJIT
@@ -37,6 +36,9 @@
 #include <eiface.h>
 #include <convar.h>
 #include <color.h>
+
+// Mutex
+#include "mutex.h"
 
 struct train_system {
 	train_system(std::string sysName, std::string sysFileName)
@@ -63,7 +65,7 @@ struct thread_userdata {
 	int finished;
 
 	std::queue<thread_msg> thread_to_sim, sim_to_thread;
-	std::mutex thread_to_sim_mutex, sim_to_thread_mutex;
+	Mutex thread_to_sim_mutex, sim_to_thread_mutex;
 };
 
 struct shared_message {

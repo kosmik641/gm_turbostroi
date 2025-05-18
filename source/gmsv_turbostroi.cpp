@@ -15,7 +15,7 @@ std::map<std::string, std::string> g_LoadedFilesCache;
 // Turbostroi sim thread API
 //------------------------------------------------------------------------------
 std::queue<shared_message> g_SharedMessagesQueue;
-std::mutex g_SharedMessagesMutex;
+Mutex g_SharedMessagesMutex;
 int shared_print(lua_State* L) {
 	int n = lua_gettop(L);
 	int i;
@@ -52,8 +52,9 @@ int shared_print(lua_State* L) {
 	char tempbuffer[512] = { 0 };
 	strncat(tempbuffer, buffer, (512 - 1) - strlen(buffer));
 	strcpy(msg.message, tempbuffer);
-	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	g_SharedMessagesMutex.lock();
 	g_SharedMessagesQueue.push(msg);
+	g_SharedMessagesMutex.unlock();
 	return 0;
 }
 
@@ -71,8 +72,9 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 		tmsg.name[63] = 0;
 		tmsg.index = index;
 		tmsg.value = value;
-		std::unique_lock<std::mutex> lock(userdata->thread_to_sim_mutex);
+		userdata->thread_to_sim_mutex.lock();
 		userdata->thread_to_sim.push(tmsg);
+		userdata->thread_to_sim_mutex.unlock();
 		successful = true;
 	}
 	return successful;
@@ -84,7 +86,7 @@ int thread_recvmessages(lua_State* state) {
 	lua_pop(state,1);
 
 	if (userdata) {
-		std::unique_lock<std::mutex> lock(userdata->sim_to_thread_mutex);
+		userdata->sim_to_thread_mutex.lock();
 		size_t total = userdata->sim_to_thread.size();
 		lua_createtable(state, total, 0);
 		for (size_t i = 0; i < total; ++i) {
@@ -98,6 +100,7 @@ int thread_recvmessages(lua_State* state) {
 			lua_rawseti(state, -2, i);
 			userdata->sim_to_thread.pop();
 		}
+		userdata->sim_to_thread_mutex.unlock();
 		return 1;
 	}
 	return 0;
@@ -108,9 +111,10 @@ extern "C" TURBOSTROI_EXPORT thread_msg ThreadRecvMessage(void* p) {
 	thread_msg tmsg;
 	//tmsg.message = NULL;
 	if (userdata) {
-		std::unique_lock<std::mutex> lock(userdata->sim_to_thread_mutex);
+		userdata->sim_to_thread_mutex.lock();
 		tmsg = userdata->sim_to_thread.front();
 		userdata->sim_to_thread.pop();
+		userdata->sim_to_thread_mutex.unlock();
 	}
 	return tmsg;
 }
@@ -118,8 +122,10 @@ extern "C" TURBOSTROI_EXPORT thread_msg ThreadRecvMessage(void* p) {
 extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p) {
 	thread_userdata* userdata = (thread_userdata*)p;
 
-	std::unique_lock<std::mutex> lock(userdata->sim_to_thread_mutex);
-	return userdata->sim_to_thread.size();
+	userdata->sim_to_thread_mutex.lock();
+	int n = userdata->sim_to_thread.size();
+	userdata->sim_to_thread_mutex.unlock();
+	return n;
 }
 
 //------------------------------------------------------------------------------
@@ -146,9 +152,15 @@ void threadSimulation(thread_userdata* userdata) {
 #endif
 	}
 
-	lua_State* L = userdata->L;
+	if (userdata == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Fail to get thread userdata!\n");
+		return;
+	}
 	
+	lua_State* L = userdata->L;
 	while (!g_ForceThreadsFinished && userdata && !userdata->finished) {
+
 		lua_pushnumber(L, Plat_FloatTime());
 		lua_setglobal(L, "CurrentTime");
 
@@ -165,9 +177,9 @@ void threadSimulation(thread_userdata* userdata) {
 			strcpy(msg.message, err.c_str());
 			lua_pop(L, 1);
 
-			std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+			g_SharedMessagesMutex.lock();
 			g_SharedMessagesQueue.push(msg);
-			lock.unlock();
+			g_SharedMessagesMutex.unlock();
 		}
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate));
@@ -178,7 +190,7 @@ void threadSimulation(thread_userdata* userdata) {
 	lua_pushstring(L,"[!] Terminating train thread");
 	lua_call(L,1,0);
 	lua_close(L);
-	free(userdata);
+	delete userdata;
 }
 
 //------------------------------------------------------------------------------
@@ -348,8 +360,9 @@ LUA_FUNCTION( API_SendMessage )
 		tmsg.index = LUA->GetNumber(5);
 		tmsg.value = LUA->GetNumber(6);
 
-		std::unique_lock<std::mutex> lock(userdata->sim_to_thread_mutex);
+		userdata->sim_to_thread_mutex.lock();
 		userdata->sim_to_thread.push(tmsg);
+		userdata->sim_to_thread_mutex.unlock();
 		successful = true;
 	}
 	LUA->PushBool(successful);
@@ -364,7 +377,7 @@ LUA_FUNCTION( API_RecvMessages )
 
 	if (userdata) {
 		LUA->CreateTable();
-		std::unique_lock<std::mutex> lock(userdata->thread_to_sim_mutex);
+		userdata->thread_to_sim_mutex.lock();
 		for (size_t i = 0; i < userdata->thread_to_sim.size(); ++i) {
 			thread_msg tmsg = userdata->thread_to_sim.front();
 			LUA->PushNumber(i);
@@ -377,6 +390,7 @@ LUA_FUNCTION( API_RecvMessages )
 			LUA->RawSet(-3);
 			userdata->thread_to_sim.pop();
 		}
+		userdata->thread_to_sim_mutex.unlock();
 		return 1;
 	}
 	return 0;
@@ -389,7 +403,7 @@ LUA_FUNCTION( API_RecvMessage )
 	LUA->Pop();
 
 	if (userdata) {
-		std::unique_lock<std::mutex> lock(userdata->thread_to_sim_mutex);
+		userdata->thread_to_sim_mutex.lock();
 		if (!userdata->thread_to_sim.empty())
 		{
 			thread_msg tmsg = userdata->thread_to_sim.front();
@@ -399,8 +413,10 @@ LUA_FUNCTION( API_RecvMessage )
 			LUA->PushNumber(tmsg.index);
 			LUA->PushNumber(tmsg.value);
 			userdata->thread_to_sim.pop();
+			userdata->thread_to_sim_mutex.unlock();
 			return 5;
 		}
+		userdata->thread_to_sim_mutex.unlock();
 	}
 	return 0;
 }
@@ -411,8 +427,9 @@ LUA_FUNCTION( API_ReadAvailable )
 	thread_userdata* userdata = LUA->GetUserType<thread_userdata>(-1, 1);
 	LUA->Pop();
 
-	std::unique_lock<std::mutex> lock(userdata->thread_to_sim_mutex);
+	userdata->thread_to_sim_mutex.lock();
 	LUA->PushNumber(userdata->thread_to_sim.size());
+	userdata->thread_to_sim_mutex.unlock();
 	return 1;
 }
 
@@ -478,19 +495,20 @@ LUA_FUNCTION( API_StartRailNetwork )
 LUA_FUNCTION(Think_handler) {
 	g_TargetTime = Plat_FloatTime();
 	
-	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	g_SharedMessagesMutex.lock();
 	if (!g_SharedMessagesQueue.empty())
 	{
 		shared_message msg = g_SharedMessagesQueue.front();
 		ConColorMsg(Color(255, 0, 255, 255), msg.message);
 		g_SharedMessagesQueue.pop();
 	}
+	g_SharedMessagesMutex.unlock();
 
 	return 0;
 }
 
 void InstallHooks(ILuaBase* LUA) {
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Installing hooks!\n");
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Installing hooks!\n");
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
 		LUA->GetField(-1, "hook");
 			LUA->GetField(-1, "Add");
@@ -513,8 +531,9 @@ void ClearLoadCache(const CCommand &command) {
 }
 
 void ClearPrintQueue(const CCommand& command) {
-	std::unique_lock<std::mutex> lock(g_SharedMessagesMutex);
+	g_SharedMessagesMutex.lock();
 	while(!g_SharedMessagesQueue.empty()) g_SharedMessagesQueue.pop();
+	g_SharedMessagesMutex.unlock();
 }
 
 //------------------------------------------------------------------------------
@@ -582,8 +601,8 @@ GMOD_MODULE_OPEN() {
 	LUA->Pop();
 
 	//Print some information
-	ConMsg("Turbostroi: DLL initialized (built " __DATE__ ")\n");
-	ConMsg("Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL initialized (built " __DATE__ ")\n");
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
 
 	// TODO for lock-free
 	//if (!printMessages.is_lock_free()) {
@@ -606,8 +625,9 @@ GMOD_MODULE_CLOSE() {
 		}
 
 		cmd = p_ICvar->FindCommand("turbostroi_clear_print");
-		cmd->Dispatch(CCommand());
-		if (cmd != nullptr) {
+		if (cmd != nullptr)
+		{
+			cmd->Dispatch(CCommand());
 			p_ICvar->UnregisterConCommand(cmd);
 		}
 	}
@@ -628,5 +648,7 @@ GMOD_MODULE_CLOSE() {
 	
 	LUA->PushNil();
 	LUA->SetField(GarrysMod::Lua::INDEX_GLOBAL, "Turbostroi");
+
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL unloaded.\n");
 	return 0;
 }
