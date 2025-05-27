@@ -40,6 +40,9 @@
 // Mutex
 #include "mutex.h"
 
+// Shared print
+#include "shared_print.h"
+
 struct train_system {
 	train_system(std::string sysName, std::string sysFileName)
 	{
@@ -66,8 +69,4 @@ struct thread_userdata {
 
 	std::queue<thread_msg> thread_to_sim, sim_to_thread;
 	Mutex thread_to_sim_mutex, sim_to_thread_mutex;
-};
-
-struct shared_message {
-	char message[512];
 };

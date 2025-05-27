@@ -14,58 +14,7 @@ std::map<std::string, std::string> g_LoadedFilesCache;
 //------------------------------------------------------------------------------
 // Turbostroi sim thread API
 //------------------------------------------------------------------------------
-std::queue<shared_message> g_SharedMessagesQueue;
-Mutex g_SharedMessagesMutex;
-int shared_print(lua_State* L) {
-	int n = lua_gettop(L);
-	int i;
-	char buffer[512];
-	char* buf = buffer;
-	buffer[0] = 0;
-
-	lua_getglobal(L, "tostring");
-	for (i = 1; i <= n; i++) {
-		const char* str;
-		lua_pushvalue(L, -1);
-		lua_pushvalue(L, i);
-		lua_call(L, 1, 1);
-		str = lua_tostring(L, -1);
-		if (strlen(str) + strlen(buffer) < 512) {
-			strcpy(buf, str);
-			buf = buf + strlen(buf);
-			buf[0] = '\t';
-			buf = buf + 1;
-			buf[0] = 0;
-		}
-		else if (i == 1 && buffer[0] == 0) {
-			strcpy(buf, "[!] Message length limit reached!");
-			buf = buf + strlen(buf);
-			buf[0] = '\t';
-			buf = buf + 1;
-			buf[0] = 0;
-		}
-		lua_pop(L, 1);
-	}
-	buffer[strlen(buffer) - 1] = '\n';
-
-	shared_message msg;
-	char tempbuffer[512] = { 0 };
-	strncat(tempbuffer, buffer, (512 - 1) - strlen(buffer));
-	strcpy(msg.message, tempbuffer);
-	g_SharedMessagesMutex.lock();
-	g_SharedMessagesQueue.push(msg);
-	g_SharedMessagesMutex.unlock();
-	return 0;
-}
-
-void shared_print(const char* str)
-{
-	shared_message msg;
-	snprintf(msg.message, sizeof(msg.message), "%s", str);
-	g_SharedMessagesMutex.lock();
-	g_SharedMessagesQueue.push(msg);
-	g_SharedMessagesMutex.unlock();
-}
+SharedPrint g_SharedPrint;
 
 extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value) {
 	bool successful = false;
@@ -181,8 +130,8 @@ void threadSimulation(thread_userdata* userdata) {
 		lua_pushboolean(L, !needThink);
 		if (lua_pcall(L, 1, 0, 0)) {
 			std::string err = lua_tostring(L, -1);
-			err += "\n";
-			shared_print(err.c_str());
+			err += '\n';
+			g_SharedPrint.Push(err.c_str());
 			lua_pop(L, 1);
 		}
 
@@ -190,7 +139,7 @@ void threadSimulation(thread_userdata* userdata) {
 	}
 
 	//Release resources
-	shared_print("[!] Terminating train thread\n");
+	g_SharedPrint.Push("[!] Terminating train thread\n");
 	lua_close(L);
 	delete userdata;
 }
@@ -240,7 +189,7 @@ LUA_FUNCTION( API_InitializeTrain )
 
 	lua_pushboolean(L, 1);
 	lua_setglobal(L, "TURBOSTROI");
-	lua_pushcfunction(L, shared_print);
+	lua_pushcfunction(L, &SharedPrint::PrintL);
 	lua_setglobal(L, "print");
 	lua_pushcfunction(L, thread_recvmessages);
 	lua_setglobal(L, "RecvMessages");
@@ -281,8 +230,8 @@ LUA_FUNCTION( API_InitializeTrain )
 	lua_getglobal(L, "Initialize");
 	if (lua_pcall(L, 0, 0, 0)) {
 		std::string err = lua_tostring(L, -1);
-		err += "\n";
-		shared_print(err.c_str());
+		err += '\n';
+		g_SharedPrint.Push(err.c_str());
 		lua_pop(L, 1);
 	}
 
@@ -496,16 +445,7 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 LUA_FUNCTION(Think_handler) {
 	g_TargetTime = Plat_FloatTime();
-	
-	g_SharedMessagesMutex.lock();
-	if (!g_SharedMessagesQueue.empty())
-	{
-		shared_message msg = g_SharedMessagesQueue.front();
-		ConColorMsg(Color(255, 0, 255, 255), msg.message);
-		g_SharedMessagesQueue.pop();
-	}
-	g_SharedMessagesMutex.unlock();
-
+	g_SharedPrint.PrintAvailable();
 	return 0;
 }
 
@@ -532,10 +472,9 @@ void ClearLoadCache(const CCommand &command) {
 	}	
 }
 
-void ClearPrintQueue(const CCommand& command) {
-	g_SharedMessagesMutex.lock();
-	while(!g_SharedMessagesQueue.empty()) g_SharedMessagesQueue.pop();
-	g_SharedMessagesMutex.unlock();
+void ClearPrintQueue(const CCommand& command)
+{
+	g_SharedPrint.ClearPrintQueue();
 }
 
 //------------------------------------------------------------------------------
