@@ -6,10 +6,10 @@
 - [x] Use Source Engine think instead of our thread
 - [ ] Linux stable work not guaranteed
   - Need testing
-- [ ] Lock-free queue and spsc_queue use
-  - Mutex is slow
 - [ ] Optimization
-- [ ] Code refactoring 
+- [x] Code refactoring
+- [ ] Remove turbostroi side from sv_turbostroi_v2.lua
+  - Need to be independent
 
 # Install fix
 Replace original `sv_turbostroi_v2.lua` from this repository.
@@ -45,7 +45,7 @@ msvcbuild.bat static
 ```
 apt install gcc-multilib
 ```
-2. [Get](https://premake.github.io/download) `premake5.exe` for Linux
+2. [Get](https://premake.github.io/download) `premake5` for Linux
 3. Place and run `premake5` in this folder:
 ```
 chmod +x ./premake5

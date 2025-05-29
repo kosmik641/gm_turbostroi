@@ -5,10 +5,10 @@
 - [x] Использовать Think от Source engine вместо своего потока
 - [ ] Стабильная работа на Linux 
   - не гарантировано, нужно тестировать
-- [ ] Использовать Lock-free реализацию queue и spsc_queue
-  - Мьютексы это медленно
 - [ ] Оптимизация
-- [ ] Чистка кода 
+- [x] Чистка кода
+- [ ] Убрать по масимуму код для части турбостроя из sv_turbostroi_v2.lua
+  - Позволит отказаться от обязательной установки своего sv_turbostroi_v2.lua
 
 # Установка фикса
 Замените оригинальный `sv_turbostroi_v2.lua` из этого репозитория. Без этого оно крашит на Linux.
@@ -43,7 +43,7 @@ msvcbuild.bat static
 ```
 apt install gcc-multilib
 ```
-2. [Скачайте](https://premake.github.io/download) `premake5.exe` для Linux
+2. [Скачайте](https://premake.github.io/download) `premake5` для Linux
 3. Скопируйте и запустите `premake5` в папке с этим репозиторием:
 ```
 chmod +x ./premake5
