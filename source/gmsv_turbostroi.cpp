@@ -4,7 +4,7 @@ using namespace GarrysMod::Lua;
 // Global variables
 //------------------------------------------------------------------------------
 bool g_ForceThreadsFinished = false; // For correct unrequire module
-double g_TargetTime = 0.0;
+double g_CurrentTime = 0.0;
 int g_ThreadTickrate = 10;
 int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
@@ -78,7 +78,12 @@ void threadSimulation(CWagon* userdata)
 
 	while (!g_ForceThreadsFinished && userdata && !userdata->IsFinished())
 	{
-		userdata->SetCurrentTime(g_TargetTime);
+		userdata->SetCurrentTime(g_CurrentTime);
+		if (userdata->DeltaTime() <= 0)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(4));
+			continue;
+		}
 		userdata->Think();
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate));
@@ -340,7 +345,7 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 LUA_FUNCTION(Think_handler)
 {
-	g_TargetTime = Plat_FloatTime();
+	g_CurrentTime = Plat_FloatTime();
 	g_SharedPrint.PrintAvailable();
 	return 0;
 }

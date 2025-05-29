@@ -180,12 +180,19 @@ void CWagon::Think(bool skipped)
 
 void CWagon::SetCurrentTime(double t)
 {
+	m_PrevTime = m_CurrentTime;
+	m_DeltaTime = t - m_PrevTime;
 	m_CurrentTime = t;
 }
 
 double CWagon::CurrentTime()
 {
 	return m_CurrentTime;
+}
+
+double CWagon::DeltaTime()
+{
+	return m_DeltaTime;
 }
 
 void CWagon::Finish()
