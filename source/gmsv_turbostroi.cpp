@@ -343,7 +343,7 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 // Initialization SourceSDK
 //------------------------------------------------------------------------------
-LUA_FUNCTION(Think_handler)
+LUA_FUNCTION_DECLARE( Think_handler )
 {
 	g_CurrentTime = Plat_FloatTime();
 	g_SharedPrint.PrintAvailable();
