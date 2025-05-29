@@ -43,30 +43,5 @@
 // Shared print
 #include "shared_print.h"
 
-struct train_system {
-	train_system(std::string sysName, std::string sysFileName)
-	{
-		BaseName = std::move(sysName);
-		FileName = std::move(sysFileName);
-	}
-
-	std::string BaseName;
-	std::string FileName; // Can be local name of loaded system
-};
-
-struct thread_msg {
-	int message;
-	char system_name[64];
-	char name[64];
-	double index;
-	double value;
-};
-
-struct thread_userdata {
-	double current_time;
-	lua_State* L;
-	int finished;
-
-	std::queue<thread_msg> thread_to_sim, sim_to_thread;
-	Mutex thread_to_sim_mutex, sim_to_thread_mutex;
-};
+// GlobalTrain
+#include "wagon.h"
