@@ -1,5 +1,6 @@
 #include "wagon.h"
 #include "shared_print.h"
+#include <cstring>
 
 #define LOCAL_L lua_State* L = m_ThreadLua
 extern SharedPrint g_SharedPrint;
