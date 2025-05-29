@@ -134,7 +134,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	CWagon* userdata = new CWagon();
 
 	// Load neccessary files
-	loadLua(LUA, userdata, "metrostroi/sv_turbostroi_v2.lua");
+	loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua");
 	loadLua(LUA, userdata, "metrostroi/sh_failsim.lua");
 
 	// Load up all the systems

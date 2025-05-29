@@ -1,222 +1,7 @@
 --------------------------------------------------------------------------------
--- Simulation acceleration DLL support
---------------------------------------------------------------------------------
-if not TURBOSTROI and (not Turbostroi or not Turbostroi.SetMTAffinityMask) then return end
-local turbostroiTrains = {}
-if Turbostroi and not TURBOSTROI then
-    local FPS = 1/engine.TickInterval()
-    local messageTimeout = 0
-    local messageCounter = 0
-    local dataCache = {{},{}}
-
-    local SendMessage = Turbostroi.SendMessage
-    local RecvMessages = Turbostroi.RecvMessages
-    local RecvMessage = Turbostroi.RecvMessage
-    local ReadAvailable = Turbostroi.ReadAvailable
-
-    local unpack = unpack
-
-    hook.Add("EntityRemoved","Turbostroi",function(ent)
-        if dataCache[ent] then
-            dataCache[ent] = nil
-        end
-        if turbostroiTrains[ent] then
-            turbostroiTrains[ent] = nil
-        end
-    end)
-    for k,ent in pairs(ents.GetAll()) do
-        if ent.Base == "gmod_subway_base" and not ent.NoTrain and not ent.DontAccelerateSimulation then
-            turbostroiTrains[ent] = true
-        end
-    end
-    hook.Add("OnEntityCreated","Turbostroi",function(ent)
-        timer.Simple(0,function()
-            if IsValid(ent) and ent.Base == "gmod_subway_base" and not ent.NoTrain and not ent.DontAccelerateSimulation then
-                turbostroiTrains[ent] = true
-            end
-        end)
-    end)
-    local id,system,name,index,value
-    local msg_count = 0
-    local idActionTable = {
-        [1] = function (train)
-            if train.Systems[system] then
-                train.Systems[system][name] = value
-                if train.TriggerTurbostroiInput then train:TriggerTurbostroiInput(system,name,value) end
-            end
-        end,
-        [2] = function (train)
-            if index == 0 and name ~= "bass" then index = nil end
-            if value == 0 and name ~= "bass" then value = nil end
-            if name == "" then name = nil end
-                --net.WriteString(name)
-            train:PlayOnce(system,name,index,value)
-        end,
-        [3] = function (train)
-            if name == "on" then
-                --print("[!]Wire "..index.." starts update! Value "..value)
-                dataCache[train]["wiresW"][index] = value
-                --train:WriteTrainWire(index,value)
-                if not train.TrainWireWritersID[index] then train.TrainWireWritersID[index] = true end
-                train.TrainWireTurbostroi[index] = value
-                if train.TriggerTurbostroiInput then train:TriggerTurbostroiInput("TrainWire",index,value) end
-            else
-                --print("[!]Wire "..index.." stop update!")
-                dataCache[train]["wiresW"][index] = nil
-            end
-        end,
-        [4] = function (train)
-            if train.Systems[system] then
-                train.Systems[system]:TriggerInput(name,value)
-            end
-        end,
-        [5] = function (train)
-            for twid,value in pairs(dataCache[train]["wiresW"]) do
-                --train:WriteTrainWire(twid,value)
-            end
-        end,
-        [6] = function (train)
-            if IsValid(Player(index)) then
-                if value==0 then
-                    Player(index):PrintMessage( HUD_PRINTCONSOLE, "--START" )
-                    -- print("--START")
-                end
-                Player(index):PrintMessage( HUD_PRINTCONSOLE, system )
-                -- print(system)
-            end
-        end,
-    }
-    local function updateTrains(trains)
-        --local recvMessage = Turbostroi.RecvMessage
-        -- Get data packets from simulation
-        for train in pairs(trains) do
-            if not dataCache[train] then
-                if not SendMessage(train,5,"","",0,0) then return end
-                dataCache[train] = {wiresW = {}}
-
-                for sys_name,system in pairs(train.Systems) do
-                    if system.OutputsList and system.DontAccelerateSimulation then
-                        for _,name in pairs(system.OutputsList) do
-                            local value = system[name] or 0
-                            if type(value) == "boolean" then value = value and 1 or 0 end
-                            if type(value) == "number" then
-                                if not dataCache[train][sys_name] then dataCache[train][sys_name] = {} end
-                                dataCache[train][sys_name][name] = math.Round(value)
-                            end
-                        end
-                    end
-                end
-            end
-            msg_count = ReadAvailable(train)
-            for _ = 1, msg_count do
-                id,system,name,index,value = RecvMessage(train)
-
-                idActionTable[id](train)
-                messageCounter = messageCounter + 1
-
-            end
-        end
-        -- Send train wire values
-        -- Output all system values
-        for train in pairs(trains) do
-            if train.ReadTrainWire then
-                for i in pairs(train.TrainWires) do
-                    if not dataCache[train]["wires"] then dataCache[train]["wires"] = {} end
-                    if dataCache[train]["wires"][i] ~= train:ReadTrainWire(i) then
-                        if SendMessage(train,3,"","",i,train:ReadTrainWire(i)) then
-                            dataCache[train]["wires"][i] = train:ReadTrainWire(i)
-                        end
-                    end
-                end
-                for sys_name,system in pairs(train.Systems) do
-                    if system.OutputsList and system.DontAccelerateSimulation then
-                        for _,name in pairs(system.OutputsList) do
-                            local value = system[name] or 0
-                            if type(value) == "boolean" then
-                                value = value and 1 or 0
-                            end
-                            if type(value) == "number" then
-                                value = math.Round(value,1)
-                                if not dataCache[train][sys_name] then dataCache[train][sys_name] = {} end
-                                if dataCache[train][sys_name][name] ~= value then
-                                    if SendMessage(train,1,sys_name,name,0,value) then
-                                        dataCache[train][sys_name][name] = value
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    if Turbostroi then
-        concommand.Add("metrostroi_turbostroi_run",function(ply,_,_,cmd)
-            if not IsValid(ply) or not ply:IsSuperAdmin() then return end
-            local train = ply:GetTrain()
-            if IsValid(train) then
-                -- print(cmd:sub(1,2),cmd:sub(3,4))
-                SendMessage(train,6,cmd:sub(1,255),cmd:sub(256,511),ply:UserID(),0)
-            end
-        end)
-        function Turbostroi.TriggerInput(train,system,name,value)
-            local v = value or 0
-            if type(value) == "boolean" then v = value and 1 or 0 end
-                SendMessage(train,4,system,name,0,v)
-            --end
-        end
-        CreateConVar("turbostroi_main_cores",1, FCVAR_ARCHIVE,"Set cores for main thread")
-        CreateConVar("turbostroi_train_cores",254, FCVAR_ARCHIVE,"Set cores for train threads")
-        cvars.AddChangeCallback("turbostroi_main_cores", function(cvar, old, value)
-            Turbostroi.SetMTAffinityMask(tonumber(value) or 1) -- CPU5 CPU4 on 6 core --NEWTURBOSTROI
-        end, "turbostroi")
-        cvars.AddChangeCallback("turbostroi_train_cores", function(cvar, old, value)
-            Turbostroi.SetSTAffinityMask(tonumber(value) or 254) -- 0 - disabled --NEWTURBOSTROI
-        end, "turbostroi")
-        Turbostroi.SetMTAffinityMask(GetConVar("turbostroi_main_cores"):GetInt() or 1) -- CPU5 CPU4 on 6 core --NEWTURBOSTROI
-        Turbostroi.SetSTAffinityMask(GetConVar("turbostroi_train_cores"):GetInt() or 254) -- 0 - disabled --NEWTURBOSTROI
-        Turbostroi.SetSimulationFPS(FPS)
-        hook.Add("Think", "Turbostroi_Think", function()
-            if not Turbostroi then return end
-            updateTrains(turbostroiTrains)
-            --[[
-            -- HACK
-            GLOBAL_SKIP_TRAIN_SYSTEMS = nil
-
-            -- Print stats
-                if ((CurTime() - messageTimeout) > 1.0) then
-                messageTimeout = CurTime()
-                RunConsoleCommand("say",Format("Metrostroi: %d messages per second (%d per tick)",messageCounter,messageCounter / FPS))
-                messageCounter = 0
-            end]]
-        end)
-    end
-    return
-end
-
-
-
-
---------------------------------------------------------------------------------
 -- Turbostroi scripts
 --------------------------------------------------------------------------------
 -- NEW API
-local OSName = "./garrysmod/lua/bin/gmsv_turbostroi_"
-if jit.os == "Linux" then
-	OSName = OSName.."linux.dll"
-elseif jit.os == "Windows" then
-	OSName = OSName.."win"
-	if jit.arch == "x86" then
-		OSName = OSName.."32.dll"
-	else
-		OSName = OSName.."64.dll"
-	end
-end
-if OSName == "" then
-	print("Can't find GM_Turbostroi DLL")
-	return
-end
-
 local ffi = require("ffi")
 ffi.cdef[[
 bool ThreadSendMessage(void *p, int message, const char* system_name, const char* name, double index, double value);
@@ -230,6 +15,21 @@ typedef struct {
 } thread_msg;
 thread_msg ThreadRecvMessage(void* p);
 ]]
+
+local OSName = "gmsv_turbostroi_"
+
+if jit.os == "Windows" then
+	OSName = OSName.."win"
+elseif jit.os == "Linux" then
+	OSName = OSName.."linux"
+end
+
+if jit.arch == "x86" then
+	OSName = OSName.."32"
+else
+	OSName = OSName.."64"
+end
+
 
 local TS = ffi.load(OSName)
 
@@ -351,19 +151,6 @@ print("[!] Train initialized!")
 function Think(skipped)
     -- This is just blatant copy paste from init.lua of base train entity
     local self = GlobalTrain
-
-    --[[ if skipped then
-        self.BeSkip = self.BeSkip or CurTime()
-        return
-    else
-        self.PrevTime = self.PrevTime or CurTime()
-        if self.BeSkip then
-            --print(1,(CurTime()-self.BeSkip)-0.03)
-            TimeMinus = TimeMinus + math.max(0,(CurTime()-self.BeSkip)-0.03)
-            --print(2,TimeMinus)
-            self.BeSkip = false
-        end
-    end--]]
 
     -- Is initialized?
     if not self.Initialized then
