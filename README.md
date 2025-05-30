@@ -12,10 +12,9 @@
   - Need to be independent
 
 # Install fix
-Replace original `sv_turbostroi_v2.lua` from this repository.
-if you don't do this, it will crash on Linux.
+Install `lib_turbostroi_v2.lua` from this repository. It's need to work with module.
 
-1. Create new folder in `garrysmod/addons`
+1. Create new folder in `garrysmod/addons` (for example `garrysmod/addons/new_turbostroi`)
 2. Place `lua` file to `lua/metrostroi` in your new folder *(you need to create subdirectories)*
 
 # Manual for Windows MSVC compile:
