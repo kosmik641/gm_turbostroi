@@ -4,7 +4,7 @@ using namespace GarrysMod::Lua;
 // Global variables
 //------------------------------------------------------------------------------
 bool g_ForceThreadsFinished = false; // For correct unrequire module
-double g_CurrentTime = 0.0;
+std::atomic<double> g_CurrentTime = 0.0;
 int g_ThreadTickrate = 10;
 int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
@@ -452,6 +452,9 @@ GMOD_MODULE_OPEN()
 	//Print some information
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL initialized (built " __DATE__ ")\n");
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
+
+	if (!g_CurrentTime.is_lock_free())
+		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Not fully supported! Perfomance may be decreased.\n");
 
 	return 0;
 }

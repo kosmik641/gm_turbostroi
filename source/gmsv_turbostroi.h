@@ -26,6 +26,7 @@
 #include <queue>
 #include <map>
 #include <vector>
+#include <atomic>
 
 // LuaJIT
 #include "lua.hpp"

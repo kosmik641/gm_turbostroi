@@ -57,7 +57,7 @@ public:
 
 private:
 	lua_State* m_ThreadLua = nullptr;
-	double m_CurrentTime = 0.0;
+	double m_CurrentTime = -1.0;
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
 	bool m_Finished = false;
