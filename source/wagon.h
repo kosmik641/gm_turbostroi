@@ -1,7 +1,7 @@
 #pragma once
+#include "ring_buffer.h"
 #include "mutex.h"
 #include "lua.hpp"
-#include <queue>
 #include <string>
 
 struct TThreadMsg {
@@ -63,6 +63,6 @@ private:
 	bool m_Finished = false;
 	int m_SystemCount = 0;
 
-	std::queue<TThreadMsg> m_Thread2Sim, m_Sim2Thread;
+	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
 	Mutex m_Thread2SimMtx, m_Sim2ThreadMtx;
 };

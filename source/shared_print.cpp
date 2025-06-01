@@ -20,9 +20,9 @@ void SharedPrint::PrintAvailable()
 	m_Mutex.lock();
 	if (!m_Queue.empty())
 	{
-		std::string msg = m_Queue.front();
-		ConColorMsg(Color(255, 0, 255, 255), msg.c_str());
-		m_Queue.pop();
+        std::string msg;
+        if (m_Queue.pop(msg))
+		    ConColorMsg(Color(255, 0, 255, 255), msg.c_str());
 	}
 	m_Mutex.unlock();
 }

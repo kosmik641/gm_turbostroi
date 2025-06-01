@@ -1,7 +1,7 @@
 #pragma once
+#include "ring_buffer.h"
 #include "mutex.h"
 #include "lua.hpp"
-#include <queue>
 #include <string>
 
 class SharedPrint
@@ -18,7 +18,7 @@ public:
     static int PrintL(lua_State* L);
 
 private:
-    std::queue<std::string> m_Queue;
+    RingBuffer<std::string, 256> m_Queue;
     Mutex m_Mutex{};
 };
 

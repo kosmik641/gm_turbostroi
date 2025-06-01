@@ -56,8 +56,8 @@ int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
 TThreadMsg CWagon::SimRecvMessage()
 {
 	m_Thread2SimMtx.lock();
-	TThreadMsg tmsg = m_Thread2Sim.front();
-	m_Thread2Sim.pop();
+	TThreadMsg tmsg;
+	m_Thread2Sim.pop(tmsg);
 	m_Thread2SimMtx.unlock();
 	return tmsg;
 }
@@ -99,8 +99,8 @@ int CWagon::ThreadRecvMessages(lua_State* state)
 TThreadMsg CWagon::ThreadRecvMessage()
 {
 	m_Sim2ThreadMtx.lock();
-	TThreadMsg tmsg = m_Sim2Thread.front();
-	m_Sim2Thread.pop();
+	TThreadMsg tmsg;
+	m_Sim2Thread.pop(tmsg);
 	m_Sim2ThreadMtx.unlock();
 
 	return tmsg;
