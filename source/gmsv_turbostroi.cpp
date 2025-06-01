@@ -9,7 +9,7 @@ int g_ThreadTickrate = 10;
 int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
-std::map<std::string, std::string> g_LoadedFilesCache;
+std::unordered_map<std::string, std::string> g_LoadedFilesCache;
 SharedPrint g_SharedPrint;
 
 //------------------------------------------------------------------------------
