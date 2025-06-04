@@ -29,13 +29,13 @@ public:
 	~CWagon();
 
 	// Garry's mod side
-	void SimSendMessage(int message, const char* system_name, const char* name, double index, double value);
+	bool SimSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);
 	TThreadMsg SimRecvMessage();
 	int SimReadAvailable();
 
 	// Turbostroi side
-	void ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value);
+	bool ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);
 	static int ThreadRecvMessages(lua_State* state);
 	TThreadMsg ThreadRecvMessage();

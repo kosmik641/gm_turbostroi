@@ -22,8 +22,8 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 	if (userdata == nullptr)
 		return false;
 
-	userdata->ThreadSendMessage(message, system_name, name, index, value);
-	return true;
+	
+	return userdata->ThreadSendMessage(message, system_name, name, index, value);
 }
 
 extern "C" TURBOSTROI_EXPORT TThreadMsg ThreadRecvMessage(void* p)
@@ -224,11 +224,11 @@ LUA_FUNCTION( API_SendMessage )
 	double index = LUA->GetNumber(5);
 	double value = LUA->GetNumber(6);
 
-	userdata->SimSendMessage(message,
+	bool sended = userdata->SimSendMessage(message,
 		system_name,name,
 		index,value);
 
-	LUA->PushBool(true);
+	LUA->PushBool(sended);
 	return 1;
 }
 

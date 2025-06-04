@@ -33,7 +33,7 @@ CWagon::~CWagon()
 	lua_close(m_ThreadLua);
 }
 
-void CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
+bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
 {
 	TThreadMsg tmsg;
 	tmsg.message = message;
@@ -43,8 +43,9 @@ void CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	tmsg.value = value;
 
 	m_Sim2ThreadMtx.lock();
-	m_Sim2Thread.push(tmsg);
+	bool res = m_Sim2Thread.push(tmsg);
 	m_Sim2ThreadMtx.unlock();
+	return res;
 }
 
 int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -70,7 +71,7 @@ int CWagon::SimReadAvailable()
 	return n;
 }
 
-void CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
+bool CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
 {
 	TThreadMsg tmsg;
 	tmsg.message = message;
@@ -80,8 +81,9 @@ void CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	tmsg.value = value;
 
 	m_Thread2SimMtx.lock();
-	m_Thread2Sim.push(tmsg);
+	bool res = m_Thread2Sim.push(tmsg);
 	m_Thread2SimMtx.unlock();
+	return res;
 }
 
 int CWagon::ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
