@@ -16,6 +16,7 @@ using Mtx = CRITICAL_SECTION;
 using Mtx = pthread_mutex_t;
 #else
 #include <mutex>
+#include <memory>
 using Mtx = std::mutex;
 #endif
 
