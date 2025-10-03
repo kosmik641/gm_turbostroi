@@ -4,6 +4,7 @@ using namespace GarrysMod::Lua;
 // Global variables
 //------------------------------------------------------------------------------
 bool g_ForceThreadsFinished = false; // For correct unrequire module
+CGlobalVars* g_pServerGlobalVars = nullptr;
 std::atomic<double> g_CurrentTime = 0.0;
 int g_ThreadTickrate = 10;
 int g_SimThreadAffinityMask = 0xFFFFFFFF;
@@ -129,9 +130,26 @@ void loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filena
 		ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s')\n", filename);
 }
 
+int GetEntIndex(GarrysMod::Lua::ILuaBase* LUA, int iStackPos)
+{	
+	if (LUA->GetType(iStackPos) != GarrysMod::Lua::Type::Entity)
+		return -1;
+
+	int entIndex = -1;
+	LUA->GetField(iStackPos, "EntIndex");
+		LUA->Push(iStackPos); // WagonEnt
+			LUA->Call(1, 1); // Entity.EntIndex()
+			entIndex = LUA->GetNumber(-1);
+		LUA->Pop(); // Result
+	return entIndex;
+}
+
 LUA_FUNCTION( API_InitializeTrain ) 
 {
 	CWagon* userdata = new CWagon();
+
+	// Store entity index of wagon
+	userdata->SetEntIndex(GetEntIndex(LUA, 1));
 
 	// Load neccessary files
 	loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua");
@@ -343,9 +361,10 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 // Initialization SourceSDK
 //------------------------------------------------------------------------------
+//extern CGlobalVars* gpGlobals;
 LUA_FUNCTION_DECLARE( Think_handler )
 {
-	g_CurrentTime = Plat_FloatTime();
+	g_CurrentTime = g_pServerGlobalVars->curtime;
 	g_SharedPrint.PrintAvailable();
 	return 0;
 }
@@ -383,22 +402,39 @@ void ClearPrintQueue(const CCommand& command)
 //------------------------------------------------------------------------------
 // SourceSDK
 //------------------------------------------------------------------------------
-static SourceSDK::FactoryLoader ICvar_Loader("vstdlib");
-static ICvar* p_ICvar = nullptr;
+static ICvar* g_pICvar = nullptr;
 
-void RegisterConCommands()
+bool RegisterConCommands()
 {
-	p_ICvar = ICvar_Loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
-	if (p_ICvar == nullptr)
+	SourceSDK::FactoryLoader vstdlib_loader("vstdlib");
+	g_pICvar = vstdlib_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
+	if (g_pICvar == nullptr)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load CVAR Interface!\n");
-		return;
+		return false;
 	}
 
 	ConCommand* pClearCacheCommand = new ConCommand("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems", FCVAR_NOTIFY);
 	ConCommand* pClearPrintCommand = new ConCommand("turbostroi_clear_print", ClearPrintQueue, "Clear print queue", FCVAR_NOTIFY);
-	p_ICvar->RegisterConCommand(pClearCacheCommand);
-	p_ICvar->RegisterConCommand(pClearPrintCommand);
+	g_pICvar->RegisterConCommand(pClearCacheCommand);
+	g_pICvar->RegisterConCommand(pClearPrintCommand);
+	return true;
+}
+
+
+bool GetGlobalVars()
+{
+	SourceSDK::FactoryLoader server_loader("server");
+	IPlayerInfoManager* pIPlayerInfoManager = server_loader.GetInterface<IPlayerInfoManager>(INTERFACEVERSION_PLAYERINFOMANAGER);
+
+	if (pIPlayerInfoManager == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load PlayerInfoManager Interface!\n");
+		return false;
+	}
+	g_pServerGlobalVars = pIPlayerInfoManager->GetGlobalVars();
+	
+	return (g_pServerGlobalVars != nullptr);
 }
 
 //------------------------------------------------------------------------------
@@ -406,7 +442,11 @@ void RegisterConCommands()
 //------------------------------------------------------------------------------
 GMOD_MODULE_OPEN()
 {
-	RegisterConCommands();
+	if (!GetGlobalVars())
+		return 0;
+
+	if (!RegisterConCommands())
+		return 0;
 
 	//Check whether being ran on server
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
@@ -465,18 +505,18 @@ GMOD_MODULE_OPEN()
 GMOD_MODULE_CLOSE()
 {
 	g_ForceThreadsFinished = true;
-	if (p_ICvar != nullptr)
+	if (g_pICvar != nullptr)
 	{
-		ConCommand* cmd = p_ICvar->FindCommand("turbostroi_clear_cache");
+		ConCommand* cmd = g_pICvar->FindCommand("turbostroi_clear_cache");
 		if (cmd != nullptr) {
-			p_ICvar->UnregisterConCommand(cmd);
+			g_pICvar->UnregisterConCommand(cmd);
 		}
 
-		cmd = p_ICvar->FindCommand("turbostroi_clear_print");
+		cmd = g_pICvar->FindCommand("turbostroi_clear_print");
 		if (cmd != nullptr)
 		{
 			cmd->Dispatch(CCommand());
-			p_ICvar->UnregisterConCommand(cmd);
+			g_pICvar->UnregisterConCommand(cmd);
 		}
 	}
 

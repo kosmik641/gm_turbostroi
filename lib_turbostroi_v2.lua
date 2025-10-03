@@ -68,13 +68,9 @@ GlobalTrain.Systems = {} -- Train systems
 GlobalTrain.TrainWires = {}
 GlobalTrain.WriteTrainWires = {}
 
-TimeMinus = 0
-_Time = 0
 function CurTime()
-    --return CurrentTime-TimeMinus
-    return _Time
+    return m_CurrentTime
 end
---function CurTime() return os.clock() end
 
 function Metrostroi.DefineSystem(name)
     TRAIN_SYSTEM = {}
@@ -165,9 +161,6 @@ function GlobalTrain.WriteTrainWire(self,n,v)
     self.WriteTrainWires[n] = v
 end
 
-
-GlobalTrain.DeltaTime = 0.33
-
 --------------------------------------------------------------------------------
 -- Main train code (turbostroi side)
 --------------------------------------------------------------------------------
@@ -175,17 +168,15 @@ print("[!] Train initialized!")
 function Think(skipped)
     -- This is just blatant copy paste from init.lua of base train entity
     local self = GlobalTrain
-
+    
     -- Is initialized?
     if not self.Initialized then
         Initialize()
         return
     end
 
-    self.DeltaTime = (CurrentTime - self.PrevTime)--self.DeltaTime+math.min(0.02,((CurrentTime - self.PrevTime)-self.DeltaTime)*0.1)
-    self.PrevTime = CurrentTime
-    if skipped or self.DeltaTime<=0 then return end
-    _Time = _Time+self.DeltaTime
+    local dT = m_DeltaTime
+    if skipped or dT <= 0 then return end
 
     -- Perform data exchange
     DataExchange()
@@ -193,20 +184,19 @@ function Think(skipped)
     -- Simulate according to schedule
     for i,s in ipairs(self.Schedule) do
         for k,v in ipairs(s) do
-            v:Think(self.DeltaTime / (v.SubIterations or 1),i)
+            v:Think(dT / (v.SubIterations or 1),i)
         end
     end
 end
 
 function Initialize()
-    if not CurrentTime then return end
+    if not m_CurrentTime then return end
     print("[!] Loading systems")
     local time = os.clock()
     for k,v in ipairs(LoadSystems) do
         GlobalTrain:LoadSystem(v[1],v[2])
     end
     print(string.format("[!] -Took %.2fs",os.clock()-time))
-    GlobalTrain.PrevTime = CurrentTime
     local iterationsCount = 1
     if (not GlobalTrain.Schedule) or (iterationsCount ~= GlobalTrain.Schedule.IterationsCount) then
         GlobalTrain.Schedule = { IterationsCount = iterationsCount }
@@ -305,13 +295,14 @@ function DataExchange()
     end
 
     -- Output train wire writes
+    local prevTime = m_PrevTime
     for twID,value in pairs(GlobalTrain.WriteTrainWires) do
         --local value = tonumber(value) or 0
         if dataCache["wires"][twID] ~= value then
             dataCache["wires"][twID] = value
             dataCache["wiresL"][twID] = false
         end
-        if not dataCache["wiresL"][twID] or dataCache["wiresL"][twID]~=GlobalTrain.PrevTime then
+        if not dataCache["wiresL"][twID] or dataCache["wiresL"][twID]~=(prevTime) then
             --SendMessage(3,"","on",tonumber(twID) or 0,dataCache["wires"][twID]) -- OLD API
             TS.ThreadSendMessage(_userdata, 3, "", "on", tonumber(twID) or 0, dataCache["wires"][twID]) -- NEW API
             --print("[!]Wire "..twID.." starts update! Value "..dataCache["wires"][twID])

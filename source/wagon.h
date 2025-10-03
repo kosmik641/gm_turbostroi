@@ -52,6 +52,9 @@ public:
 
 	double DeltaTime();
 
+	void SetEntIndex(int idx);
+	int EntIndex();
+
 	void Finish();
 	bool IsFinished();
 
@@ -62,6 +65,7 @@ private:
 	double m_DeltaTime = 0.0;
 	bool m_Finished = false;
 	int m_SystemCount = 0;
+	int m_EntIndex = -1;
 
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
 	Mutex m_Thread2SimMtx, m_Sim2ThreadMtx;

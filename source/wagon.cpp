@@ -165,10 +165,6 @@ void CWagon::Initialize()
 void CWagon::Think(bool skipped)
 {
 	LOCAL_L;
-
-	lua_pushnumber(L, m_CurrentTime);
-	lua_setglobal(L, "CurrentTime");
-
 	lua_getglobal(L, "Think");
 	lua_pushboolean(L, skipped);
 	if (lua_pcall(L, 1, 0, 0))
@@ -182,9 +178,19 @@ void CWagon::Think(bool skipped)
 
 void CWagon::SetCurrentTime(double t)
 {
+	LOCAL_L;
 	m_PrevTime = m_CurrentTime;
 	m_DeltaTime = t - m_PrevTime;
 	m_CurrentTime = t;
+
+	lua_pushnumber(L, m_CurrentTime);
+	lua_setglobal(L, "m_CurrentTime");
+
+	lua_pushnumber(L, m_DeltaTime);
+	lua_setglobal(L, "m_DeltaTime");
+
+	lua_pushnumber(L, m_PrevTime);
+	lua_setglobal(L, "m_PrevTime");
 }
 
 double CWagon::CurrentTime()
@@ -195,6 +201,20 @@ double CWagon::CurrentTime()
 double CWagon::DeltaTime()
 {
 	return m_DeltaTime;
+}
+
+void CWagon::SetEntIndex(int idx)
+{
+	LOCAL_L;
+	m_EntIndex = idx;
+
+	lua_pushnumber(L, m_EntIndex);
+	lua_setglobal(L, "m_EntIndex");
+}
+
+int CWagon::EntIndex()
+{
+	return m_EntIndex;
 }
 
 void CWagon::Finish()

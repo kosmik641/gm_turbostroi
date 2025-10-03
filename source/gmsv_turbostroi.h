@@ -37,6 +37,7 @@
 #include <eiface.h>
 #include <convar.h>
 #include <color.h>
+#include <game/server/iplayerinfo.h>
 
 // Mutex
 #include "mutex.h"
