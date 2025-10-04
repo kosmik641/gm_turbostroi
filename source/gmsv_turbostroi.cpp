@@ -14,6 +14,15 @@ std::unordered_map<std::string, std::string> g_LoadedFilesCache;
 SharedPrint g_SharedPrint;
 
 //------------------------------------------------------------------------------
+// Global variables for Source SDK
+//------------------------------------------------------------------------------
+extern ICvar* cvar;
+extern ICvar* g_pCVar;
+static ConVar g_CVarDisableCache("turbostroi_disable_cache", "0", FCVAR_NONE, "Disable scripts cache for development");
+static ConCommand g_CmdClearCache("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems");
+static ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Clear print queue");
+
+//------------------------------------------------------------------------------
 // Turbostroi sim thread API
 //------------------------------------------------------------------------------
 extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value)
@@ -23,7 +32,6 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 	if (userdata == nullptr)
 		return false;
 
-	
 	return userdata->ThreadSendMessage(message, system_name, name, index, value);
 }
 
@@ -146,6 +154,9 @@ int GetEntIndex(GarrysMod::Lua::ILuaBase* LUA, int iStackPos)
 
 LUA_FUNCTION( API_InitializeTrain ) 
 {
+	if (g_CVarDisableCache.GetBool())
+		g_LoadedFilesCache.clear();
+
 	CWagon* userdata = new CWagon();
 
 	// Store entity index of wagon
@@ -402,25 +413,21 @@ void ClearPrintQueue(const CCommand& command)
 //------------------------------------------------------------------------------
 // SourceSDK
 //------------------------------------------------------------------------------
-static ICvar* g_pICvar = nullptr;
-
 bool RegisterConCommands()
 {
 	SourceSDK::FactoryLoader vstdlib_loader("vstdlib");
-	g_pICvar = vstdlib_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
-	if (g_pICvar == nullptr)
+	cvar = g_pCVar = vstdlib_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
+	if (g_pCVar == nullptr)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load CVAR Interface!\n");
 		return false;
 	}
 
-	ConCommand* pClearCacheCommand = new ConCommand("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems", FCVAR_NOTIFY);
-	ConCommand* pClearPrintCommand = new ConCommand("turbostroi_clear_print", ClearPrintQueue, "Clear print queue", FCVAR_NOTIFY);
-	g_pICvar->RegisterConCommand(pClearCacheCommand);
-	g_pICvar->RegisterConCommand(pClearPrintCommand);
+	g_pCVar->RegisterConCommand(&g_CmdClearCache);
+	g_pCVar->RegisterConCommand(&g_CmdClearPrint);
+	g_pCVar->RegisterConCommand(&g_CVarDisableCache);
 	return true;
 }
-
 
 bool GetGlobalVars()
 {
@@ -505,19 +512,11 @@ GMOD_MODULE_OPEN()
 GMOD_MODULE_CLOSE()
 {
 	g_ForceThreadsFinished = true;
-	if (g_pICvar != nullptr)
+	if (g_pCVar != nullptr)
 	{
-		ConCommand* cmd = g_pICvar->FindCommand("turbostroi_clear_cache");
-		if (cmd != nullptr) {
-			g_pICvar->UnregisterConCommand(cmd);
-		}
-
-		cmd = g_pICvar->FindCommand("turbostroi_clear_print");
-		if (cmd != nullptr)
-		{
-			cmd->Dispatch(CCommand());
-			g_pICvar->UnregisterConCommand(cmd);
-		}
+		g_pCVar->UnregisterConCommand(&g_CmdClearCache);
+		g_pCVar->UnregisterConCommand(&g_CmdClearPrint);
+		g_pCVar->UnregisterConCommand(&g_CVarDisableCache);
 	}
 
 	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);

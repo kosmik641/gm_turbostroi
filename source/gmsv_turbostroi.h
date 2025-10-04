@@ -47,3 +47,6 @@
 
 // GlobalTrain
 #include "wagon.h"
+
+void ClearLoadCache(const CCommand& command);
+void ClearPrintQueue(const CCommand& command);
