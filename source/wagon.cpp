@@ -3,6 +3,10 @@
 #include <cstring>
 
 #define LOCAL_L lua_State* L = m_ThreadLua
+#define LOCAL_THIS lua_getglobal(state, "_userdata"); \
+	CWagon* _this = (CWagon*)lua_touserdata(state, 1); \
+	lua_pop(state, 1)
+
 extern SharedPrint g_SharedPrint;
 
 CWagon::CWagon()
@@ -18,6 +22,14 @@ CWagon::CWagon()
 	// print()
 	lua_pushcfunction(L, &SharedPrint::PrintL);
 	lua_setglobal(L, "print");
+
+	// CurTime()
+	lua_pushcfunction(L, &CWagon::CurrentTime);
+	lua_setglobal(L, "CurTime");
+
+	// GetEntIndex()
+	lua_pushcfunction(L, &CWagon::EntIndex);
+	lua_setglobal(L, "EntIndex");
 
 	// RecvMessages()
 	lua_pushcfunction(L, &CWagon::ThreadRecvMessages);
@@ -198,6 +210,13 @@ double CWagon::CurrentTime()
 	return m_CurrentTime;
 }
 
+int CWagon::CurrentTime(lua_State* state)
+{
+	LOCAL_THIS;
+	lua_pushnumber(state, _this->m_CurrentTime);
+	return 1;
+}
+
 double CWagon::DeltaTime()
 {
 	return m_DeltaTime;
@@ -215,6 +234,13 @@ void CWagon::SetEntIndex(int idx)
 int CWagon::EntIndex()
 {
 	return m_EntIndex;
+}
+
+int CWagon::EntIndex(lua_State* state)
+{
+	LOCAL_THIS;
+	lua_pushnumber(state, _this->m_EntIndex);
+	return 1;
 }
 
 void CWagon::Finish()

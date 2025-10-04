@@ -49,11 +49,13 @@ public:
 
 	void SetCurrentTime(double t);
 	double CurrentTime();
+	static int CurrentTime(lua_State* state);
 
 	double DeltaTime();
 
 	void SetEntIndex(int idx);
 	int EntIndex();
+	static int EntIndex(lua_State* state);
 
 	void Finish();
 	bool IsFinished();

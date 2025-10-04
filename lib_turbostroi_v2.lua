@@ -68,10 +68,6 @@ GlobalTrain.Systems = {} -- Train systems
 GlobalTrain.TrainWires = {}
 GlobalTrain.WriteTrainWires = {}
 
-function CurTime()
-    return m_CurrentTime
-end
-
 function Metrostroi.DefineSystem(name)
     TRAIN_SYSTEM = {}
     Metrostroi.BaseSystems[name] = TRAIN_SYSTEM
@@ -190,7 +186,6 @@ function Think(skipped)
 end
 
 function Initialize()
-    if not m_CurrentTime then return end
     print("[!] Loading systems")
     local time = os.clock()
     for k,v in ipairs(LoadSystems) do
