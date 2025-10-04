@@ -2,7 +2,7 @@
 
 #if defined(_WIN32)
 #define USE_WIN32_CS
-#elif defined(POSIX)
+#elif defined(POSIX) && defined(TEST_PTHREAD)
 #define USE_PTHREAD_MTX
 #endif
 
