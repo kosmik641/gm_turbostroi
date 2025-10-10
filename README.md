@@ -1,15 +1,23 @@
 > [Русская версия этого файла](README_ru.md)
 # Turbostroi V2 with cross-compile support
 - [x] Backwards compatibility
-  - With small `sv_turbostroi_v2.lua` fix for FFI load
+  - Using `lib_turbostroi_v2.lua`
 - [x] Linux compile
 - [x] Use Source Engine think instead of our thread
 - [ ] Linux stable work not guaranteed
   - Need testing
 - [ ] Optimization
 - [x] Code refactoring
-- [ ] Remove turbostroi side from sv_turbostroi_v2.lua
-  - Need to be independent
+- [ ] Remove turbostroi side from `lib_turbostroi_v2.lua`
+  - Going to remove any lua scripts for turbostroi working
+- [ ] New threading model
+
+# Available commands
+- `turbostroi_clear_cache` - Clear cache of loaded scripts
+- `turbostroi_clear_print` - Stop printing messages from turbostroi
+- `turbostroi_disable_cache` - Disable scripts cache (for developers only)
+- `turbostroi_main_cores` - Affinity mask for SRCDS
+- `turbostroi_train_cores` - Affinity mask for train threads
 
 # Install fix
 Install `lib_turbostroi_v2.lua` from this repository. It's need to work with module.
