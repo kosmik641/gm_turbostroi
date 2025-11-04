@@ -108,32 +108,33 @@ void threadSimulation(CWagon* userdata)
 //------------------------------------------------------------------------------
 void loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filename)
 {
+	// Get file from cache
+	bool useCache = !g_CVarDisableCache.GetBool();
+	if (useCache)
+	{
+		auto cache_item = g_LoadedFilesCache.find(filename);
+		if (cache_item != g_LoadedFilesCache.end())
+		{
+			userdata->LoadBuffer(cache_item->second.c_str(), filename);
+			return;
+		}
+	}
+
+	// Read file
 	const char* file_data = nullptr;
-	auto cache_item = g_LoadedFilesCache.find(filename);
-	if (cache_item != g_LoadedFilesCache.end())
-	{
-		file_data = cache_item->second.c_str();
-	}
-	else
-	{
-		LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-			LUA->GetField(-1, "file");
-				LUA->GetField(-1, "Read");
-					LUA->PushString(filename);
-					LUA->PushString("LUA");
-				LUA->Call(2, 1); //file.Read(...)
+	LUA->GetField(-1, "Read");
+		LUA->PushString(filename);
+		LUA->PushString("LUA");
+	LUA->Call(2, 1); //file.Read(filename, "LUA")
+	file_data = LUA->GetString(-1);
+	LUA->Pop();
 
-				if (LUA->GetString(-1)) {
-					file_data = LUA->GetString(-1);
-					g_LoadedFilesCache.emplace(filename, file_data);
-				}
-				LUA->Pop(); //returned result
-			LUA->Pop(); //file
-		LUA->Pop(); //GLOB
-	}
-
+	// Load file to CWagon
 	if (file_data != nullptr)
+	{
 		userdata->LoadBuffer(file_data, filename);
+		if (useCache) g_LoadedFilesCache.emplace(filename, file_data);
+	}
 	else
 		ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s')\n", filename);
 }
@@ -154,13 +155,18 @@ int GetEntIndex(GarrysMod::Lua::ILuaBase* LUA, int iStackPos)
 
 LUA_FUNCTION( API_InitializeTrain ) 
 {
-	if (g_CVarDisableCache.GetBool())
-		g_LoadedFilesCache.clear();
-
 	CWagon* userdata = new CWagon();
 
 	// Store entity index of wagon
 	userdata->SetEntIndex(GetEntIndex(LUA, 1));
+
+	// If cache disabled, clear it
+	if (g_CVarDisableCache.GetBool())
+		g_LoadedFilesCache.clear();
+	
+	// Push GLOB, file on top
+	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->GetField(-1, "file");
 
 	// Load neccessary files
 	loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua");
@@ -171,6 +177,9 @@ LUA_FUNCTION( API_InitializeTrain )
 	{
 		loadLua(LUA, userdata, sys.file_name.c_str());
 	}
+
+	// Pop GLOB, file
+	LUA->Pop(2);
 
 	// Initialize all the systems reported by the train
 	while (!g_LoadSystemList.empty())
