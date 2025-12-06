@@ -85,6 +85,7 @@ void threadSimulation(CWagon* userdata)
 		return;
 	}
 
+	std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate)); // Wait for first messages from engine
 	while (!g_ForceThreadsFinished && userdata && !userdata->IsFinished())
 	{
 		userdata->SetCurrentTime(g_CurrentTime);
