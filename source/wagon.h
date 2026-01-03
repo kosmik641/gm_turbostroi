@@ -1,9 +1,13 @@
 #pragma once
 #include "ring_buffer.h"
 #include "mutex.h"
-#include "lua.hpp"
 #include <string>
 #include <chrono>
+extern "C"
+{
+#include "lua.h"
+#include "lj_alloc.h"
+}
 
 struct TThreadMsg {
 	int message = 0;
@@ -24,6 +28,15 @@ struct TTrainSystem {
 	std::string file_name; // Can be local name of loaded system
 };
 
+class CWagon;
+struct TLuaData 
+{
+	CWagon* self = nullptr;
+	void* msp = nullptr;
+	lua_State* L = nullptr;
+	PRNGState prng{};
+};
+
 class CWagon {
 public:
 	CWagon();
@@ -38,7 +51,7 @@ public:
 	// Turbostroi side
 	bool ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);
-	static int ThreadRecvMessages(lua_State* state);
+	static int ThreadRecvMessages(lua_State* L);
 	TThreadMsg ThreadRecvMessage();
 	int ThreadReadAvailable();
 
@@ -51,19 +64,19 @@ public:
 	bool UpdateCurTime(float t);
 
 	double CurrentTime();
-	static int CurrentTime(lua_State* state);
+	static int CurrentTime(lua_State* L);
 
 	double DeltaTime();
 
 	void SetEntIndex(int idx);
 	int EntIndex();
-	static int EntIndex(lua_State* state);
+	static int EntIndex(lua_State* L);
 
 	void Finish();
 	bool IsFinished();
 
 private:
-	lua_State* m_ThreadLua = nullptr;
+	TLuaData m_Lua{ this };
 	std::chrono::steady_clock::time_point m_StartTime;
 	float m_ServerCurTime = -1.0f;
 	double m_CurrentTime = -1.0;
@@ -76,3 +89,4 @@ private:
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
 	Mutex m_Thread2SimMtx, m_Sim2ThreadMtx;
 };
+

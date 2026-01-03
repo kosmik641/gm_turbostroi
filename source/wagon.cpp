@@ -2,17 +2,29 @@
 #include "shared_print.h"
 #include <cstring>
 
-#define LOCAL_L lua_State* L = m_ThreadLua
-#define LOCAL_THIS lua_getglobal(state, "_userdata"); \
-	CWagon* _this = (CWagon*)lua_touserdata(state, 1); \
-	lua_pop(state, 1)
+#define LOCAL_L lua_State* L = m_Lua.L
+#define LOCAL_SELF TLuaData* ud; \
+lua_getallocf(L, (void**)&ud); \
+CWagon* self = ud->self
 
 extern SharedPrint g_SharedPrint;
+
+// Wrapper to LuaJIT allocator
+static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
+{
+	TLuaData* L = (TLuaData*)ud;
+	return lj_alloc_f(L->msp, ptr, osize, nsize);
+}
 
 CWagon::CWagon()
 {
 	m_StartTime = std::chrono::steady_clock::now(); 
-	m_ThreadLua = luaL_newstate();
+
+	// Alloc lua environment
+	m_Lua.msp = lj_alloc_create(&m_Lua.prng);
+	lj_alloc_setprng(m_Lua.msp, &m_Lua.prng);
+	m_Lua.L = lua_newstate(l_alloc, &m_Lua);
+
 	LOCAL_L;
 	luaL_openlibs(L);
 
@@ -43,7 +55,8 @@ CWagon::CWagon()
 
 CWagon::~CWagon()
 {
-	lua_close(m_ThreadLua);
+	lua_close(m_Lua.L);
+	lj_alloc_destroy(m_Lua.msp);
 }
 
 bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -105,7 +118,7 @@ int CWagon::ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
 	return 0;
 }
 
-int CWagon::ThreadRecvMessages(lua_State* state)
+int CWagon::ThreadRecvMessages(lua_State* L)
 {
 	// Not used
 	return 0;
@@ -217,10 +230,10 @@ double CWagon::CurrentTime()
 	return m_CurrentTime;
 }
 
-int CWagon::CurrentTime(lua_State* state)
+int CWagon::CurrentTime(lua_State* L)
 {
-	LOCAL_THIS;
-	lua_pushnumber(state, _this->m_CurrentTime);
+	LOCAL_SELF;
+	lua_pushnumber(L, self->m_CurrentTime);
 	return 1;
 }
 
@@ -243,10 +256,10 @@ int CWagon::EntIndex()
 	return m_EntIndex;
 }
 
-int CWagon::EntIndex(lua_State* state)
+int CWagon::EntIndex(lua_State* L)
 {
-	LOCAL_THIS;
-	lua_pushnumber(state, _this->m_EntIndex);
+	LOCAL_SELF;
+	lua_pushnumber(L, self->m_EntIndex);
 	return 1;
 }
 
@@ -259,5 +272,3 @@ bool CWagon::IsFinished()
 {
 	return m_Finished;
 }
-
-
