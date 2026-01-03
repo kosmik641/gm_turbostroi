@@ -5,7 +5,6 @@
 #include <chrono>
 extern "C"
 {
-#include "lua.h"
 #include "lj_alloc.h"
 }
 

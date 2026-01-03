@@ -1,19 +1,21 @@
 #include "wagon.h"
 #include "shared_print.h"
 #include <cstring>
+extern "C"
+{
+#include "lj_obj.h"
+}
 
 #define LOCAL_L lua_State* L = m_Lua.L
-#define LOCAL_SELF TLuaData* ud; \
-lua_getallocf(L, (void**)&ud); \
-CWagon* self = ud->self
+#define LOCAL_SELF CWagon* self = static_cast<TLuaData*>(G(L)->allocd)->self
 
 extern SharedPrint g_SharedPrint;
 
 // Wrapper to LuaJIT allocator
 static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 {
-	TLuaData* L = (TLuaData*)ud;
-	return lj_alloc_f(L->msp, ptr, osize, nsize);
+	TLuaData* d = static_cast<TLuaData*>(ud);
+	return lj_alloc_f(d->msp, ptr, osize, nsize);
 }
 
 CWagon::CWagon()
@@ -21,9 +23,9 @@ CWagon::CWagon()
 	m_StartTime = std::chrono::steady_clock::now(); 
 
 	// Alloc lua environment
-	m_Lua.msp = lj_alloc_create(&m_Lua.prng);
-	lj_alloc_setprng(m_Lua.msp, &m_Lua.prng);
-	m_Lua.L = lua_newstate(l_alloc, &m_Lua);
+	m_Lua.L = luaL_newstate();
+	lua_getallocf(m_Lua.L, &m_Lua.msp); // Get original mspace
+	lua_setallocf(m_Lua.L, l_alloc, &m_Lua); // Replace with our data
 
 	LOCAL_L;
 	luaL_openlibs(L);
