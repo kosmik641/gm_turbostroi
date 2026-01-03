@@ -66,7 +66,11 @@ public:
 	double CurrentTime();
 	static int CurrentTime(lua_State* L);
 
+	double PrevTime();
+	static int PrevTime(lua_State* L);
+
 	double DeltaTime();
+	static int DeltaTime(lua_State* L);
 
 	void SetEntIndex(int idx);
 	int EntIndex();

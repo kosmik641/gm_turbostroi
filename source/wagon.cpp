@@ -40,6 +40,14 @@ CWagon::CWagon()
 	lua_pushcfunction(L, &CWagon::CurrentTime);
 	lua_setglobal(L, "CurTime");
 
+	// PrevTime()
+	lua_pushcfunction(L, &CWagon::PrevTime);
+	lua_setglobal(L, "PrevTime");
+
+	// FrameTime()
+	lua_pushcfunction(L, &CWagon::DeltaTime);
+	lua_setglobal(L, "FrameTime");
+
 	// GetEntIndex()
 	lua_pushcfunction(L, &CWagon::EntIndex);
 	lua_setglobal(L, "EntIndex");
@@ -192,7 +200,8 @@ void CWagon::Think()
 {
 	LOCAL_L;
 	lua_getglobal(L, "Think");
-	if (lua_pcall(L, 0, 0, 0))
+	lua_pushnumber(L, m_DeltaTime);
+	if (lua_pcall(L, 1, 0, 0))
 	{
 		std::string err = lua_tostring(L, -1);
 		err += '\n';
@@ -211,16 +220,6 @@ bool CWagon::UpdateCurTime(float t)
 	m_PrevTime = m_CurrentTime;
 	m_DeltaTime = tCurTime - m_PrevTime;
 	m_CurrentTime = tCurTime;
-
-	LOCAL_L;
-	lua_pushnumber(L, m_CurrentTime);
-	lua_setglobal(L, "m_CurrentTime");
-
-	lua_pushnumber(L, m_DeltaTime);
-	lua_setglobal(L, "m_DeltaTime");
-
-	lua_pushnumber(L, m_PrevTime);
-	lua_setglobal(L, "m_PrevTime");
 	
 	return true;
 }
@@ -237,18 +236,34 @@ int CWagon::CurrentTime(lua_State* L)
 	return 1;
 }
 
+double CWagon::PrevTime()
+{
+	return m_PrevTime;
+}
+
+int CWagon::PrevTime(lua_State* L)
+{
+	LOCAL_SELF;
+	lua_pushnumber(L, self->m_PrevTime);
+	return 1;
+}
+
 double CWagon::DeltaTime()
 {
 	return m_DeltaTime;
+}
+
+int CWagon::DeltaTime(lua_State* L)
+{
+	LOCAL_SELF;
+	lua_pushnumber(L, self->m_DeltaTime);
+	return 1;
 }
 
 void CWagon::SetEntIndex(int idx)
 {
 	LOCAL_L;
 	m_EntIndex = idx;
-
-	lua_pushnumber(L, m_EntIndex);
-	lua_setglobal(L, "m_EntIndex");
 }
 
 int CWagon::EntIndex()

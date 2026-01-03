@@ -161,7 +161,7 @@ end
 -- Main train code (turbostroi side)
 --------------------------------------------------------------------------------
 print("[!] Train initialized!")
-function Think()
+function Think(dT)
     -- This is just blatant copy paste from init.lua of base train entity
     local self = GlobalTrain
     
@@ -175,7 +175,6 @@ function Think()
     DataExchange()
 
     -- Simulate according to schedule
-    local dT = m_DeltaTime
     for i,s in ipairs(self.Schedule) do
         for k,v in ipairs(s) do
             v:Think(dT / (v.SubIterations or 1),i)
@@ -288,7 +287,8 @@ function DataExchange()
     end
 
     -- Output train wire writes
-    local prevTime = m_PrevTime
+    local prevTime = PrevTime()
+    local curTime = CurTime()
     for twID,value in pairs(GlobalTrain.WriteTrainWires) do
         --local value = tonumber(value) or 0
         if dataCache["wires"][twID] ~= value then
@@ -301,10 +301,11 @@ function DataExchange()
             --print("[!]Wire "..twID.." starts update! Value "..dataCache["wires"][twID])
         end
         GlobalTrain.WriteTrainWires[twID] = nil
-        dataCache["wiresL"][twID] = CurTime()
+        dataCache["wiresL"][twID] = curTime
     end
+    
     for twID,time in pairs(dataCache["wiresL"]) do
-        if time~=CurTime() then
+        if time~=curTime then
             TS.ThreadSendMessage(_userdata,3, "", "off", tonumber(twID) or 0, 0)
             --print("[!]Wire "..twID.." stops update!")
             dataCache["wiresL"][twID] = nil
