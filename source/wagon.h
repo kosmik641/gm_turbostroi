@@ -71,6 +71,8 @@ public:
 	double DeltaTime();
 	static int DeltaTime(lua_State* L);
 
+	static int SysTime(lua_State* L);
+
 	void SetEntIndex(int idx);
 	int EntIndex();
 	static int EntIndex(lua_State* L);

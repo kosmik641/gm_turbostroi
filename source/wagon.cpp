@@ -50,6 +50,10 @@ CWagon::CWagon()
 	lua_pushcfunction(L, &CWagon::DeltaTime);
 	lua_setglobal(L, "FrameTime");
 
+	// SysTime()
+	lua_pushcfunction(L, &CWagon::SysTime);
+	lua_setglobal(L, "SysTime");
+
 	// GetEntIndex()
 	lua_pushcfunction(L, &CWagon::EntIndex);
 	lua_setglobal(L, "EntIndex");
@@ -78,10 +82,7 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	tmsg.index = index;
 	tmsg.value = value;
 
-	m_Sim2ThreadMtx.lock();
-	bool res = m_Sim2Thread.push(tmsg);
-	m_Sim2ThreadMtx.unlock();
-	return res;
+	return m_Sim2Thread.push(tmsg);
 }
 
 int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -92,19 +93,14 @@ int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
 
 TThreadMsg CWagon::SimRecvMessage()
 {
-	m_Thread2SimMtx.lock();
 	TThreadMsg tmsg;
 	m_Thread2Sim.pop(tmsg);
-	m_Thread2SimMtx.unlock();
 	return tmsg;
 }
 
 int CWagon::SimReadAvailable()
 {
-	m_Thread2SimMtx.lock();
-	int n = m_Thread2Sim.size();
-	m_Thread2SimMtx.unlock();
-	return n;
+	return m_Thread2Sim.size();
 }
 
 bool CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -116,10 +112,7 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	tmsg.index = index;
 	tmsg.value = value;
 
-	m_Thread2SimMtx.lock();
-	bool res = m_Thread2Sim.push(tmsg);
-	m_Thread2SimMtx.unlock();
-	return res;
+	return m_Thread2Sim.push(tmsg);
 }
 
 int CWagon::ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -136,20 +129,14 @@ int CWagon::ThreadRecvMessages(lua_State* L)
 
 TThreadMsg CWagon::ThreadRecvMessage()
 {
-	m_Sim2ThreadMtx.lock();
 	TThreadMsg tmsg;
 	m_Sim2Thread.pop(tmsg);
-	m_Sim2ThreadMtx.unlock();
-
 	return tmsg;
 }
 
 int CWagon::ThreadReadAvailable()
 {
-	m_Sim2ThreadMtx.lock();
-	int n = m_Sim2Thread.size();
-	m_Sim2ThreadMtx.unlock();
-	return n;
+	return m_Sim2Thread.size();
 }
 
 void CWagon::LoadBuffer(const char* buf, const char* filename)
@@ -262,9 +249,16 @@ int CWagon::DeltaTime(lua_State* L)
 	return 1;
 }
 
+int CWagon::SysTime(lua_State* L)
+{
+	LOCAL_SELF;
+	double tSysTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - self->m_StartTime).count();
+	lua_pushnumber(L, tSysTime);
+	return 1;
+}
+
 void CWagon::SetEntIndex(int idx)
 {
-	LOCAL_L;
 	m_EntIndex = idx;
 }
 
