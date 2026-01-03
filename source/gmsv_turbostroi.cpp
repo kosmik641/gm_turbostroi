@@ -5,8 +5,8 @@ using namespace GarrysMod::Lua;
 //------------------------------------------------------------------------------
 bool g_ForceThreadsFinished = false; // For correct unrequire module
 CGlobalVars* g_pServerGlobalVars = nullptr;
-std::atomic<double> g_CurrentTime = 0.0;
-int g_ThreadTickrate = 10;
+std::atomic<float> g_CurrentTime = 0.0f;
+unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
 int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
@@ -85,18 +85,17 @@ void threadSimulation(CWagon* userdata)
 		return;
 	}
 
-	std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate)); // Wait for first messages from engine
+	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate)); // Wait for first messages from engine
 	while (!g_ForceThreadsFinished && userdata && !userdata->IsFinished())
 	{
-		userdata->SetCurrentTime(g_CurrentTime);
-		if (userdata->DeltaTime() <= 0)
+		if (!userdata->UpdateCurTime(g_CurrentTime)) // Wait for server update
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(4));
+			std::this_thread::sleep_for(std::chrono::milliseconds(3));
 			continue;
 		}
 		userdata->Think();
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(g_ThreadTickrate));
+		std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
 	}
 
 	//Release resources
@@ -316,8 +315,8 @@ LUA_FUNCTION( API_SetSimulationFPS )
 	if (!FPS)
 		return 0;
 
-	g_ThreadTickrate = 1000.0 / FPS;
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to %d FPS (%d ms delay)\n", (int)(FPS + 0.5), g_ThreadTickrate);
+	g_ThreadTickrate = (1000000.0 / FPS);
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to %d FPS (%.02f ms delay)\n", (int)(FPS + 0.5), g_ThreadTickrate / 1000.0f);
 	return 0;
 }
 

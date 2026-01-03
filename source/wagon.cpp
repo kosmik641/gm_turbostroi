@@ -11,6 +11,7 @@ extern SharedPrint g_SharedPrint;
 
 CWagon::CWagon()
 {
+	m_StartTime = std::chrono::steady_clock::now(); 
 	m_ThreadLua = luaL_newstate();
 	LOCAL_L;
 	luaL_openlibs(L);
@@ -174,12 +175,11 @@ void CWagon::Initialize()
 	}
 }
 
-void CWagon::Think(bool skipped)
+void CWagon::Think()
 {
 	LOCAL_L;
 	lua_getglobal(L, "Think");
-	lua_pushboolean(L, skipped);
-	if (lua_pcall(L, 1, 0, 0))
+	if (lua_pcall(L, 0, 0, 0))
 	{
 		std::string err = lua_tostring(L, -1);
 		err += '\n';
@@ -188,13 +188,18 @@ void CWagon::Think(bool skipped)
 	}
 }
 
-void CWagon::SetCurrentTime(double t)
+bool CWagon::UpdateCurTime(float t)
 {
-	LOCAL_L;
-	m_PrevTime = m_CurrentTime;
-	m_DeltaTime = t - m_PrevTime;
-	m_CurrentTime = t;
+	if (m_ServerCurTime == t) return false;
+	m_ServerCurTime = t;
 
+	double tCurTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_StartTime).count();
+
+	m_PrevTime = m_CurrentTime;
+	m_DeltaTime = tCurTime - m_PrevTime;
+	m_CurrentTime = tCurTime;
+
+	LOCAL_L;
 	lua_pushnumber(L, m_CurrentTime);
 	lua_setglobal(L, "m_CurrentTime");
 
@@ -203,6 +208,8 @@ void CWagon::SetCurrentTime(double t)
 
 	lua_pushnumber(L, m_PrevTime);
 	lua_setglobal(L, "m_PrevTime");
+	
+	return true;
 }
 
 double CWagon::CurrentTime()

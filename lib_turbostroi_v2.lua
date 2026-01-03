@@ -161,7 +161,7 @@ end
 -- Main train code (turbostroi side)
 --------------------------------------------------------------------------------
 print("[!] Train initialized!")
-function Think(skipped)
+function Think()
     -- This is just blatant copy paste from init.lua of base train entity
     local self = GlobalTrain
     
@@ -171,13 +171,11 @@ function Think(skipped)
         return
     end
 
-    local dT = m_DeltaTime
-    if skipped or dT <= 0 then return end
-
     -- Perform data exchange
     DataExchange()
 
     -- Simulate according to schedule
+    local dT = m_DeltaTime
     for i,s in ipairs(self.Schedule) do
         for k,v in ipairs(s) do
             v:Think(dT / (v.SubIterations or 1),i)

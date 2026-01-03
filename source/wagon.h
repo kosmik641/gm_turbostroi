@@ -3,6 +3,7 @@
 #include "mutex.h"
 #include "lua.hpp"
 #include <string>
+#include <chrono>
 
 struct TThreadMsg {
 	int message = 0;
@@ -45,9 +46,10 @@ public:
 	void AddLoadSystem(TTrainSystem& sys);
 
 	void Initialize();
-	void Think(bool skipped = false);
+	void Think();
 
-	void SetCurrentTime(double t);
+	bool UpdateCurTime(float t);
+
 	double CurrentTime();
 	static int CurrentTime(lua_State* state);
 
@@ -62,6 +64,8 @@ public:
 
 private:
 	lua_State* m_ThreadLua = nullptr;
+	std::chrono::steady_clock::time_point m_StartTime;
+	float m_ServerCurTime = -1.0f;
 	double m_CurrentTime = -1.0;
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
