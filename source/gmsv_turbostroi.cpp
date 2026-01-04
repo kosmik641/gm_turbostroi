@@ -35,14 +35,15 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 	return userdata->ThreadSendMessage(message, system_name, name, index, value);
 }
 
-extern "C" TURBOSTROI_EXPORT TThreadMsg ThreadRecvMessage(void* p)
+extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
 {
 	CWagon* userdata = (CWagon*)p;
 
 	if (userdata == nullptr)
-		return TThreadMsg();
+		return CWagon::s_EmptyMsg;
+		
 
-	return userdata->ThreadRecvMessage();;
+	return userdata->ThreadRecvMessage();
 }
 
 extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p)
@@ -285,7 +286,7 @@ LUA_FUNCTION( API_RecvMessage )
 	if (userdata == nullptr)
 		return 0;
 
-	TThreadMsg tmsg = userdata->SimRecvMessage();
+	TThreadMsg& tmsg = userdata->SimRecvMessage();
 	LUA->PushNumber(tmsg.message);
 	LUA->PushString(tmsg.system_name);
 	LUA->PushString(tmsg.name);

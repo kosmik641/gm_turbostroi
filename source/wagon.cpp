@@ -77,8 +77,8 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 {
 	TThreadMsg tmsg;
 	tmsg.message = message;
-	strncpy(tmsg.system_name, system_name, 63);
-	strncpy(tmsg.name, name, 63);
+	tmsg.system_name = system_name;
+	tmsg.name = name;
 	tmsg.index = index;
 	tmsg.value = value;
 
@@ -91,11 +91,12 @@ int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
 	return 0;
 }
 
-TThreadMsg CWagon::SimRecvMessage()
+TThreadMsg& CWagon::SimRecvMessage()
 {
-	TThreadMsg tmsg;
-	m_Thread2Sim.pop(tmsg);
-	return tmsg;
+	if (m_Thread2Sim.pop(m_Thread2SimMsg))
+		return m_Thread2SimMsg;
+	else
+		return s_EmptyMsg;
 }
 
 int CWagon::SimReadAvailable()
@@ -107,8 +108,8 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 {
 	TThreadMsg tmsg;
 	tmsg.message = message;
-	strncpy(tmsg.system_name, system_name, 63);
-	strncpy(tmsg.name, name, 63);
+	tmsg.system_name = system_name;
+	tmsg.name = name;
 	tmsg.index = index;
 	tmsg.value = value;
 
@@ -127,11 +128,12 @@ int CWagon::ThreadRecvMessages(lua_State* L)
 	return 0;
 }
 
-TThreadMsg CWagon::ThreadRecvMessage()
+TThreadMsg& CWagon::ThreadRecvMessage()
 {
-	TThreadMsg tmsg;
-	m_Sim2Thread.pop(tmsg);
-	return tmsg;
+	if (m_Sim2Thread.pop(m_Sim2ThreadMsg))
+		return m_Sim2ThreadMsg;
+	else
+		return s_EmptyMsg;
 }
 
 int CWagon::ThreadReadAvailable()

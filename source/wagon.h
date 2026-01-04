@@ -10,10 +10,10 @@ extern "C"
 
 struct TThreadMsg {
 	int message = 0;
-	char system_name[64]{};
-	char name[64]{};
-	double index = 0;
-	double value = 0;
+	const char* system_name;
+	const char* name;
+	double index;
+	double value;
 };
 
 struct TTrainSystem {
@@ -41,17 +41,18 @@ public:
 	CWagon();
 	~CWagon();
 
+	inline static TThreadMsg s_EmptyMsg{ 0 };
 	// Garry's mod side
 	bool SimSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);
-	TThreadMsg SimRecvMessage();
+	TThreadMsg& SimRecvMessage();
 	int SimReadAvailable();
 
 	// Turbostroi side
 	bool ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);
 	static int ThreadRecvMessages(lua_State* L);
-	TThreadMsg ThreadRecvMessage();
+	TThreadMsg& ThreadRecvMessage();
 	int ThreadReadAvailable();
 
 	void LoadBuffer(const char* buf, const char* filename);
@@ -91,6 +92,7 @@ private:
 	int m_SystemCount = 0;
 	int m_EntIndex = -1;
 
+	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
 	Mutex m_Thread2SimMtx, m_Sim2ThreadMtx;
 };

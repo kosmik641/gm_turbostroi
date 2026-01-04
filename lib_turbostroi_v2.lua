@@ -47,12 +47,12 @@ bool ThreadSendMessage(void *p, int message, const char* system_name, const char
 int ThreadReadAvailable(void* p);
 typedef struct {
     int message;
-    char system_name[64];
-    char name[64];
+    const char* system_name;
+    const char* name;
     double index;
     double value;
 } thread_msg;
-thread_msg ThreadRecvMessage(void* p);
+thread_msg& ThreadRecvMessage(void* p);
 ]]
 
 local TS = ffi.load(dllPath)
@@ -162,20 +162,11 @@ end
 --------------------------------------------------------------------------------
 print("[!] Train initialized!")
 function Think(dT)
-    -- This is just blatant copy paste from init.lua of base train entity
-    local self = GlobalTrain
-    
-    -- Is initialized?
-    if not self.Initialized then
-        Initialize()
-        return
-    end
-
     -- Perform data exchange
     DataExchange()
 
     -- Simulate according to schedule
-    for i,s in ipairs(self.Schedule) do
+    for i,s in ipairs(GlobalTrain.Schedule) do
         for k,v in ipairs(s) do
             v:Think(dT / (v.SubIterations or 1),i)
         end
@@ -184,11 +175,11 @@ end
 
 function Initialize()
     print("[!] Loading systems")
-    local time = os.clock()
+    local time = SysTime()
     for k,v in ipairs(LoadSystems) do
         GlobalTrain:LoadSystem(v[1],v[2])
     end
-    print(string.format("[!] -Took %.2fs",os.clock()-time))
+    print(string.format("[!] -Took %.2fs",SysTime()-time))
     local iterationsCount = 1
     if (not GlobalTrain.Schedule) or (iterationsCount ~= GlobalTrain.Schedule.IterationsCount) then
         GlobalTrain.Schedule = { IterationsCount = iterationsCount }
@@ -254,9 +245,7 @@ function DataExchange()
             local data,err = loadstring(scr)
             if data then
                 local ret = tostring(data()) or "N\\A"
-                for i=0,math.ceil(#ret/63) do
-                    TS.ThreadSendMessage(_userdata, 6, ret:sub(i*63,(i+1)*63-1), "",msg_data.index,i)
-                end
+                TS.ThreadSendMessage(_userdata, 6, ret, "",msg_data.index,i)
             else
                 print(err)
                 TS.ThreadSendMessage(_userdata, 6, tostring(err), "",msg_data.index,0)
