@@ -3,7 +3,7 @@
 #if defined(_WIN32)
 #define USE_WIN32_CS
 #elif defined(POSIX) && defined(TEST_PTHREAD)
-#define USE_PTHREAD_MTX
+//#define USE_PTHREAD_MTX
 #endif
 
 #if defined(USE_WIN32_CS)
