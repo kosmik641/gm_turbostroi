@@ -18,7 +18,7 @@ local processMsgTbl = {
     -----------------------------------
     [1] = function(train,system,name,index,value)
         if train.Systems[system] then
-            train[system][name] = value
+            train.Systems[system][name] = value
             train:TriggerTurbostroiInput(system,name,value)
         end
     end,
@@ -37,7 +37,7 @@ local processMsgTbl = {
     -----------------------------------
     [3] = function(train,system,name,index,value)
         if train.Systems[system] then
-            train[system]:TriggerInput(name,value)
+            train.Systems[system]:TriggerInput(name,value)
         end
     end,
 
@@ -62,17 +62,11 @@ local processMsgTbl = {
 --------------------------------------------------------------------------------
 -- Read from thread data
 --------------------------------------------------------------------------------
-local id = 0
-local system = ""
-local name = ""
-local index = 0
-local value = 0
-local msg_count = 0
 local function tsReadData(train, ud)
-    msg_count = tsReadAvailable(ud)
+    local msg_count = tsReadAvailable(ud)
 
     for i=1,msg_count do
-        id,system,name,index,value = tsRecvMessage(ud)
+        local id,system,name,index,value = tsRecvMessage(ud)
 
         processMsgTbl[id](train,system,name,index,value)
     end
@@ -81,8 +75,6 @@ end
 --------------------------------------------------------------------------------
 -- Write to thread data
 --------------------------------------------------------------------------------
-local sys = {}
-local value = 0
 local function tsWriteData(train, ud)
     -- Send wires
     for i,v in pairs(train.TrainWires) do
@@ -96,13 +88,11 @@ local function tsWriteData(train, ud)
     end
 
     -- Send outputs
-    for i,sys_name in ipairs(train._SysNames) do
-        sys = train[sys_name]
-        
+    for sys_name,sys in pairs(train.Systems) do
         if sys.OutputsList and sys.DontAccelerateSimulation then
-            for _,name in ipairs(sys.OutputsList) do
+            for _,name in ipairs(sys.OutputsList) do                
                 if train._DataOut[sys_name][name] ~= sys[name] then
-                    value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
+                    local value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
                     if tsSendMessage(ud, 1, sys_name, name, 0, value) then
                         train._DataOut[sys_name][name] = sys[name]
                     -- else
@@ -120,13 +110,10 @@ end
 local function tsWagonCreate(ent)
     if ent.DontAccelerateSimulation then return end
 
-    ent._SysNames = {}
     ent._DataOut = {}
     ent._WireOut = {}
     
     for sys_name,sys in pairs(ent.Systems) do
-        table.insert(ent._SysNames, sys_name)
-
         -- Remove empty list
         if sys.OutputsList and #sys.OutputsList == 0 then sys.OutputsList = nil end 
 
@@ -200,7 +187,7 @@ Turbostroi.ScheduleIter = 0
 
 -- Train data
 TRAIN = {}
-TRAIN._SysNames = {}
+TRAIN.Systems = {}
 TRAIN._WiresR = {}
 TRAIN._WiresW = {}
 
@@ -278,10 +265,10 @@ function Initialize()
     for iteration=1,max_iter do
         local tbl = {}
 
-        for i,v in ipairs(TRAIN._SysNames) do
-            local sys_iter = TRAIN[v].SubIterations or 1
+        for sys_name,sys in pairs(TRAIN.Systems) do
+            local sys_iter = sys.SubIterations or 1
             if ((iteration)%(max_iter/sys_iter)) == 0 then
-                table.insert(tbl, TRAIN[v])
+                table.insert(tbl, sys)
             end
         end
 
@@ -317,10 +304,10 @@ local processMsgTbl = {
     -- OutputsList values
     -----------------------------------
     [1] = function(train,system,name,index,value)
-        if train[system] then
-            train[system][name] = value
-        else
-            print("[TThreadMsg: 1] No system defined: "..system)
+        if train.Systems[system] then
+            train.Systems[system][name] = value
+        -- else
+        --     print("[TThreadMsg: 1] No system defined: "..system)
         end
     end,
 
@@ -335,10 +322,10 @@ local processMsgTbl = {
     -- TriggerInput for accelereted system
     -----------------------------------
     [3] = function(train,system,name,index,value)
-        if train[system] then
-            train[system]:TriggerInput(name,value)
-        else
-            print("[TThreadMsg: 3] No system defined: "..system)
+        if train.Systems[system] then
+            train.Systems[system]:TriggerInput(name,value)
+        -- else
+        --     print("[TThreadMsg: 3] No system defined: "..system)
         end
     end,
 
@@ -359,23 +346,16 @@ local processMsgTbl = {
 -- Read from engine data
 --------------------------------------------------------------------------------
 local train = TRAIN
-
-local msg
-local id = 0
-local system = ""
-local name = ""
-local index = 0
-local value = 0
-local msg_count = 0
 function tsReadData()
-    msg_count = tsReadAvailable(ud)
+    local msg_count = tsReadAvailable(ud)
+
     for i=1,msg_count do
-        msg = tsRecvMessage(ud)
-        id = msg.id
-        system = ffi.string(msg.system)
-        name = ffi.string(msg.name)
-        index = msg.index
-        value = msg.value
+        local msg = tsRecvMessage(ud)
+        local id = msg.id
+        local system = ffi.string(msg.system)
+        local name = ffi.string(msg.name)
+        local index = msg.index
+        local value = msg.value
 
         processMsgTbl[id](train,system,name,index,value)
     end
@@ -384,8 +364,6 @@ end
 --------------------------------------------------------------------------------
 -- Write to engine data
 --------------------------------------------------------------------------------
-local sys = {}
-local value = 0
 function tsWriteData()
     -- Send wires
     for i,v in pairs(train._WiresW) do
@@ -399,13 +377,11 @@ function tsWriteData()
     end
 
     -- Send outputs
-    for i,sys_name in ipairs(train._SysNames) do
-        sys = train[sys_name]
-
+    for sys_name,sys in pairs(train.Systems) do
         if sys.OutputsList and (not sys.DontAccelerateSimulation) then
             for _,name in ipairs(sys.OutputsList) do
                 if train._DataOut[sys_name][name] ~= sys[name] then
-                    value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
+                    local value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
                     if tsSendMessage(ud, 1, sys_name, name, 0, value) then
                         train._DataOut[sys_name][name] = sys[name]
                     -- else
@@ -484,7 +460,7 @@ function TRAIN:LoadSystem(sys_name,name,...)
 
     -- Save to train
     self[sys_name] = sys
-    table.insert(self._SysNames, sys_name)
+    self.Systems[sys_name] = sys
 end
 
 --------------------------------------------------------------------------------
