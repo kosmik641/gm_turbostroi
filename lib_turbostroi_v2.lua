@@ -90,7 +90,7 @@ local function tsWriteData(train, ud)
     -- Send outputs
     for sys_name,sys in pairs(train.Systems) do
         if sys.OutputsList and sys.DontAccelerateSimulation then
-            for _,name in ipairs(sys.OutputsList) do                
+            for _,name in ipairs(sys.OutputsList) do
                 if train._DataOut[sys_name][name] ~= sys[name] then
                     local value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
                     if tsSendMessage(ud, 1, sys_name, name, 0, value) then
@@ -199,7 +199,7 @@ TRAIN._WireOut = {}
 for i=1,128 do
     table.insert(TRAIN._WiresR, 0)
     table.insert(TRAIN._WiresW, 0)
-    table.insert(TRAIN._WireOut, 0)
+    table.insert(TRAIN._WireOut, 717)
 end
 
 -- Metrostroi
