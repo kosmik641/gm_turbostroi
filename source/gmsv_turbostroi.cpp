@@ -27,7 +27,7 @@ static ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Cl
 //------------------------------------------------------------------------------
 extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value)
 {
-	CWagon* userdata = (CWagon*)p;
+	CWagon* userdata = static_cast<CWagon*>(p);
 
 	if (userdata == nullptr)
 		return false;
@@ -37,7 +37,7 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 
 extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
 {
-	CWagon* userdata = (CWagon*)p;
+	CWagon* userdata = static_cast<CWagon*>(p);
 
 	if (userdata == nullptr)
 		return CWagon::s_EmptyMsg;
@@ -48,7 +48,7 @@ extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
 
 extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p)
 {
-	CWagon* userdata = (CWagon*)p;
+	CWagon* userdata = static_cast<CWagon*>(p);
 
 	if (userdata == nullptr)
 		return 0;
@@ -107,7 +107,7 @@ void threadSimulation(CWagon* userdata)
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
 //------------------------------------------------------------------------------
-void loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filename)
+bool loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filename)
 {
 	// Get file from cache
 	bool useCache = !g_CVarDisableCache.GetBool();
@@ -116,8 +116,7 @@ void loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filena
 		auto cache_item = g_LoadedFilesCache.find(filename);
 		if (cache_item != g_LoadedFilesCache.end())
 		{
-			userdata->LoadBuffer(cache_item->second.c_str(), filename);
-			return;
+			return userdata->LoadBuffer(cache_item->second.c_str(), filename);
 		}
 	}
 
@@ -133,11 +132,15 @@ void loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filena
 	// Load file to CWagon
 	if (file_data != nullptr)
 	{
-		userdata->LoadBuffer(file_data, filename);
-		if (useCache) g_LoadedFilesCache.emplace(filename, file_data);
+		bool loaded = userdata->LoadBuffer(file_data, filename);
+		if (useCache && loaded) g_LoadedFilesCache.emplace(filename, file_data);
+		return loaded;
 	}
 	else
+	{
 		ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s')\n", filename);
+		return true; // Ignore not founded file
+	}
 }
 
 int GetEntIndex(GarrysMod::Lua::ILuaBase* LUA, int iStackPos)
@@ -158,6 +161,10 @@ LUA_FUNCTION( API_InitializeTrain )
 {
 	CWagon* userdata = new CWagon();
 
+	// Train._sim_userdata = *CWagon
+	LUA->PushUserType(userdata, Type::LightUserData);
+	LUA->SetField(1, "_CWagon");
+
 	// Store entity index of wagon
 	userdata->SetEntIndex(GetEntIndex(LUA, 1));
 
@@ -170,10 +177,29 @@ LUA_FUNCTION( API_InitializeTrain )
 	LUA->GetField(-1, "file");
 
 	// Load neccessary files
-	loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua");
-	loadLua(LUA, userdata, "metrostroi/sh_failsim.lua");
+	if (!loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua") || !userdata->CheckLibLoaded())
+	{
+		ConColorMsg(Color(255, 0, 255, 255), "[!] Fail to load lib_turbostroi_v2.lua\n");
+
+		// Pop GLOB, file
+		LUA->Pop(2);
+
+		// Train.DontAccelerateSimulation = true
+		LUA->PushBool(true);
+		LUA->SetField(1, "DontAccelerateSimulation");
+
+		// Train._sim_userdata = nil
+		LUA->PushNil();
+		LUA->SetField(1, "_CWagon");
+		delete userdata;
+
+		// Hook call
+		HookRunTrainEnt(LUA, 1);
+		return 0;
+	}
 
 	// Load up all the systems
+	loadLua(LUA, userdata, "metrostroi/sh_failsim.lua");
 	for (TTrainSystem sys : g_MetrostroiSystemList)
 	{
 		loadLua(LUA, userdata, sys.file_name.c_str());
@@ -192,9 +218,8 @@ LUA_FUNCTION( API_InitializeTrain )
 	// Run initialize
 	userdata->Initialize();
 
-	// _sim_userdata = *CWagon
-	LUA->PushUserType(userdata, 1);
-	LUA->SetField(1, "_sim_userdata");
+	// Hook call
+	HookRunTrainEnt(LUA, 1);
 
 	//Create thread for simulation
 	std::thread thread(threadSimulation, userdata);
@@ -205,14 +230,15 @@ LUA_FUNCTION( API_InitializeTrain )
 
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
-	LUA->GetField(1,"_sim_userdata");
-		CWagon* userdata = LUA->GetUserType<CWagon>(-1, 1);
+	LUA->GetField(1,"_CWagon");
+		CWagon* userdata = LUA->GetUserType<CWagon>(-1, Type::LightUserData);
 		if (userdata) userdata->Finish();
 	LUA->Pop();
 
 	LUA->PushNil();
-	LUA->SetField(1,"_sim_userdata");
+	LUA->SetField(1,"_CWagon");
 
+	HookRunTrainEnt(LUA, 1, true);
 	return 0;
 }
 
@@ -239,11 +265,40 @@ LUA_FUNCTION( API_RegisterSystem )
 	return 0;
 }
 
+LUA_FUNCTION( API_TriggerInput )
+{
+	if (!LUA->IsType(1, Type::Entity) ||
+		!LUA->IsType(2, Type::String) ||
+		!LUA->IsType(3, Type::String))
+		return 0;
+
+	LUA->GetField(1, "_CWagon");
+	CWagon* userdata = LUA->GetUserType<CWagon>(-1, Type::LightUserData);
+	LUA->Pop();
+
+	if (userdata == nullptr)
+		return 0;
+
+	const char* system_name = LUA->GetString(2);
+	const char* name = LUA->GetString(3);
+	double value;
+
+	int valueT = LUA->GetType(4);
+	if (valueT == Type::Number)
+		value = LUA->GetNumber(4);
+	else if (valueT == Type::Bool)
+		value = LUA->GetBool(4);
+	else
+		value = 0;
+
+	userdata->SimSendMessage(3, system_name, name, 0, value);
+
+	return 0;
+}
+
 LUA_FUNCTION( API_SendMessage ) 
 {
-	LUA->GetField(1, "_sim_userdata");
-	CWagon* userdata = LUA->GetUserType<CWagon>(-1, 1);
-	LUA->Pop();
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
 
 	if (userdata == nullptr)
 	{
@@ -279,9 +334,7 @@ LUA_FUNCTION( API_RecvMessages )
 
 LUA_FUNCTION( API_RecvMessage ) 
 {
-	LUA->GetField(1, "_sim_userdata");
-	CWagon* userdata = LUA->GetUserType<CWagon>(-1, 1);
-	LUA->Pop();
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
 
 	if (userdata == nullptr)
 		return 0;
@@ -297,9 +350,7 @@ LUA_FUNCTION( API_RecvMessage )
 
 LUA_FUNCTION( API_ReadAvailable ) 
 {
-	LUA->GetField(1, "_sim_userdata");
-	CWagon* userdata = LUA->GetUserType<CWagon>(-1, 1);
-	LUA->Pop();
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
 
 	if (userdata != nullptr)
 		LUA->PushNumber(userdata->SimReadAvailable());
@@ -388,6 +439,28 @@ LUA_FUNCTION_DECLARE( Think_handler )
 	g_CurrentTime = g_pServerGlobalVars->curtime;
 	g_SharedPrint.PrintAvailable();
 	return 0;
+}
+
+void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove)
+{
+	if (LUA == nullptr)
+		return;
+
+	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	{
+		LUA->GetField(-1, "hook");
+		if (LUA->IsType(-1, Type::Table))
+		{
+			LUA->GetField(-1, "Run");
+			if (LUA->IsType(-1, Type::Function))
+			{
+				LUA->PushString(remove ? "TurbostroiWagonRemove" : "TurbostroiWagonCreate");
+				LUA->Push(entStackPos);
+				LUA->Call(2, 0);
+			}
+		}
+	}
+	LUA->Pop(2);
 }
 
 void InstallHooks(ILuaBase* LUA)
@@ -492,22 +565,28 @@ GMOD_MODULE_OPEN()
 			PushCFunc(API_DeinitializeTrain, "DeinitializeTrain");
 			PushCFunc(API_StartRailNetwork, "StartRailNetwork");
 
+			PushCFunc(API_ReadAvailable, "ReadAvailable");
 			PushCFunc(API_SendMessage, "SendMessage");
 			PushCFunc(API_RecvMessages, "RecvMessages");
 			PushCFunc(API_RecvMessage, "RecvMessage");
 
 			PushCFunc(API_LoadSystem, "LoadSystem");
 			PushCFunc(API_RegisterSystem, "RegisterSystem");
+			PushCFunc(API_TriggerInput, "TriggerInput");
 
-			PushCFunc(API_ReadAvailable, "ReadAvailable");
 			PushCFunc(API_SetSimulationFPS, "SetSimulationFPS");
 			PushCFunc(API_SetMTAffinityMask, "SetMTAffinityMask");
 			PushCFunc(API_SetSTAffinityMask, "SetSTAffinityMask");
 		LUA->SetField(-2,"Turbostroi");
+
+		LUA->GetField(-1, "include");
+			LUA->PushString("metrostroi/lib_turbostroi_v2.lua");
+			LUA->Call(1, 0);
+
 	LUA->Pop();
 
 	//Print some information
-	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL initialized (built " __DATE__ ")\n");
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: [" TURBOSTROI_VERSION "] DLL initialized (built " __DATE__ ")\n");
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
 
 	if (!g_CurrentTime.is_lock_free())

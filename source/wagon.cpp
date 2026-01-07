@@ -62,9 +62,9 @@ CWagon::CWagon()
 	lua_pushcfunction(L, &CWagon::ThreadRecvMessages);
 	lua_setglobal(L, "RecvMessages");
 
-	// _userdata = this
+	// _CWagon = this
 	lua_pushlightuserdata(L, this);
-	lua_setglobal(L, "_userdata");
+	lua_setglobal(L, "_CWagon");
 }
 
 CWagon::~CWagon()
@@ -141,7 +141,7 @@ int CWagon::ThreadReadAvailable()
 	return m_Sim2Thread.size();
 }
 
-void CWagon::LoadBuffer(const char* buf, const char* filename)
+bool CWagon::LoadBuffer(const char* buf, const char* filename)
 {
 	LOCAL_L;
 	if (luaL_loadbuffer(L, buf, strlen(buf), filename)
@@ -151,14 +151,37 @@ void CWagon::LoadBuffer(const char* buf, const char* filename)
 		err += '\n';
 		g_SharedPrint.Push(err.c_str());
 		lua_pop(L, 1);
+		return false;
 	}
 
+	return true;
+}
+
+bool CWagon::CheckLibLoaded()
+{
+	LOCAL_L;
+
+	lua_getglobal(L, "TURBOSTROI_LOADED");
+	if (lua_type(L, -1) == LUA_TBOOLEAN)
+	{
+		bool loaded = lua_toboolean(L, -1);
+		lua_pop(L, 1);
+		return loaded;
+	}
+
+	return false;
 }
 
 void CWagon::AddLoadSystem(TTrainSystem& sys)
 {
 	LOCAL_L;
 	lua_getglobal(L, "LoadSystems");
+	if (lua_type(L, -1) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		return;
+	}
+
 		lua_newtable(L);
 			lua_pushnumber(L, 1);
 			lua_pushstring(L, sys.file_name.c_str());

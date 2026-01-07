@@ -55,7 +55,8 @@ public:
 	TThreadMsg& ThreadRecvMessage();
 	int ThreadReadAvailable();
 
-	void LoadBuffer(const char* buf, const char* filename);
+	bool LoadBuffer(const char* buf, const char* filename);
+	bool CheckLibLoaded();
 	void AddLoadSystem(TTrainSystem& sys);
 
 	void Initialize();
@@ -94,6 +95,5 @@ private:
 
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
-	Mutex m_Thread2SimMtx, m_Sim2ThreadMtx;
 };
 

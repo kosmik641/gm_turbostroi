@@ -1,308 +1,520 @@
+if SERVER then
 --------------------------------------------------------------------------------
--- Turbostroi scripts
+-- Serverside script
 --------------------------------------------------------------------------------
--- NEW API
-local OSes = {
-    Windows = {
-        x86 = "win32",
-        x64 = "win64"
-    },
-    Linux = {
-        x86 = "linux",
-        x64 = "linux64"
-    },
-    BSD = {
-        x86 = "linux",
-        x64 = "linux64"
-    },
-    POSIX = {
-        x86 = "linux",
-        x64 = "linux64"
-    },
-    OSX = {
-        x86 = "osx",
-        x64 = "osx"
-    },
-    Other = {
-        x86 = "linux",
-        x64 = "linux64"
-    }
+Turbostroi.SpawnedTrains = {}
+
+local tsTriggerInput = Turbostroi.TriggerInput
+local tsReadAvailable = Turbostroi.ReadAvailable
+local tsRecvMessage = Turbostroi.RecvMessage
+local tsSendMessage = Turbostroi.SendMessage
+
+--------------------------------------------------------------------------------
+-- Preccess incoming thread messages
+--------------------------------------------------------------------------------
+local processMsgTbl = {
+    -----------------------------------
+    -- OutputsList values
+    -----------------------------------
+    [1] = function(train,system,name,index,value)
+        if train.Systems[system] then
+            train[system][name] = value
+            train:TriggerTurbostroiInput(system,name,value)
+        end
+    end,
+
+    -----------------------------------
+    -- Train wires values
+    -----------------------------------
+    [2] = function(train,system,name,index,value)
+        if not train.TrainWireWritersID[index] then train.TrainWireWritersID[index] = true end
+        train.TrainWireTurbostroi[index] = value
+        train:TriggerTurbostroiInput("TrainWire",index,value)
+    end,
+
+    -----------------------------------
+    -- TriggerInput for non accelereted system
+    -----------------------------------
+    [3] = function(train,system,name,index,value)
+        if train.Systems[system] then
+            train[system]:TriggerInput(name,value)
+        end
+    end,
+
+    -----------------------------------
+    -- ENT:PlayOnce()
+    -----------------------------------
+    [4] = function(train,system,name,index,value)
+        train:PlayOnce(system,name,index,value)
+    end,
+
+    -----------------------------------
+    -- print() data from lua_runstring in Turbostroi environment
+    -----------------------------------
+    [5] = function(train,system,name,index,value)
+        local ply = Player(index)
+        if not IsValid(ply) then return end
+        ply:PrintMessage(HUD_PRINTCONSOLE, "metrostroi_turbostroi_run:" )
+        ply:PrintMessage(HUD_PRINTCONSOLE, system )
+    end,
 }
 
-local postfix
-if OSes[jit.os] then
-    postfix = OSes[jit.os][jit.arch]
+--------------------------------------------------------------------------------
+-- Read from thread data
+--------------------------------------------------------------------------------
+local id = 0
+local system = ""
+local name = ""
+local index = 0
+local value = 0
+local msg_count = 0
+local function tsReadData(train, ud)
+    msg_count = tsReadAvailable(ud)
+
+    for i=1,msg_count do
+        id,system,name,index,value = tsRecvMessage(ud)
+
+        processMsgTbl[id](train,system,name,index,value)
+    end
 end
 
+--------------------------------------------------------------------------------
+-- Write to thread data
+--------------------------------------------------------------------------------
+local sys = {}
+local value = 0
+local function tsWriteData(train, ud)
+    -- Send wires
+    for i,v in pairs(train.TrainWires) do
+        if train._WireOut[i] ~= v then
+            if tsSendMessage(ud, 2, "", "", i, v) then
+                train._WireOut[i] = v
+            -- else
+            --     print("Fail to send Wire item: "..i)
+            end
+        end
+    end
+
+    -- Send outputs
+    for i,sys_name in ipairs(train._SysNames) do
+        sys = train[sys_name]
+        
+        if sys.OutputsList and sys.DontAccelerateSimulation then
+            for _,name in ipairs(sys.OutputsList) do
+                if train._DataOut[sys_name][name] ~= sys[name] then
+                    value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
+                    if tsSendMessage(ud, 1, sys_name, name, 0, value) then
+                        train._DataOut[sys_name][name] = sys[name]
+                    -- else
+                    --     print("Fail to send OutputsList item: "..sys_name..name)
+                    end
+                end
+            end
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Hook from Turbostroi.InitializeTrain
+--------------------------------------------------------------------------------
+local function tsWagonCreate(ent)
+    if ent.DontAccelerateSimulation then return end
+
+    ent._SysNames = {}
+    ent._DataOut = {}
+    ent._WireOut = {}
+    
+    for sys_name,sys in pairs(ent.Systems) do
+        table.insert(ent._SysNames, sys_name)
+
+        -- Remove empty list
+        if sys.OutputsList and #sys.OutputsList == 0 then sys.OutputsList = nil end 
+
+        -- Initialize data cache
+        if sys.OutputsList then
+            ent._DataOut[sys_name] = {}
+            for i,k in ipairs(sys.OutputsList) do
+                ent._DataOut[sys_name][k] = 0
+            end
+        end
+    end
+
+    -- Add data exchange funcs
+    local ud
+    local oldThink = ent.Think
+    function ent.Think(self)
+        ud = self._CWagon
+        tsReadData(self,ud)
+        oldThink(self)
+        tsWriteData(self,ud)
+        return true
+    end
+
+    table.insert(Turbostroi.SpawnedTrains, ent)
+end
+hook.Add("TurbostroiWagonCreate", "Turbostroi_Create", tsWagonCreate)
+
+--------------------------------------------------------------------------------
+-- Hook from Turbostroi.DeinitializeTrain
+--------------------------------------------------------------------------------
+local function tsWagonRemove(ent)
+    for i,t in ipairs(Turbostroi.SpawnedTrains) do
+        if ent == t then
+            table.remove(Turbostroi.SpawnedTrains, i)
+            break
+        end
+    end
+end
+hook.Add("TurbostroiWagonRemove", "Turbostroi_Remove", tsWagonRemove)
+
+--------------------------------------------------------------------------------
+-- Replace sv_turbostroi_v2.lua things
+--------------------------------------------------------------------------------
+hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
+    Turbostroi.TriggerInput = tsTriggerInput -- Replace replaced...
+
+    hook.Remove("Think", "Turbostroi_Think")
+    hook.Remove("OnEntityCreated", "Turbostroi")
+    hook.Remove("EntityRemoved", "Turbostroi")
+    concommand.Remove("metrostroi_turbostroi_run")
+
+    concommand.Add("metrostroi_turbostroi_run",function(ply,_,_,cmd)
+        if not IsValid(ply) or not ply:IsSuperAdmin() then return end
+        local train = ply:GetTrain()
+        if IsValid(train) then
+            tsSendMessage(train._CWagon, 5, cmd:sub(1,255), cmd:sub(256,511), ply:UserID(), train:EntIndex())
+        end
+    end)
+end)
+
+return end -- SERVER
+
+
+if not TURBOSTROI then return end
+--------------------------------------------------------------------------------
+-- Turbostroi side script
+--------------------------------------------------------------------------------
+Turbostroi = {}
+Turbostroi.Schedule = {}
+Turbostroi.ScheduleIter = 0
+
+-- Train data
+TRAIN = {}
+TRAIN._SysNames = {}
+TRAIN._WiresR = {}
+TRAIN._WiresW = {}
+
+-- Data values buffer for send only when updated
+TRAIN._DataOut = {}
+TRAIN._WireOut = {}
+
+-- Initialize train wires to zero values
+for i=1,128 do
+    table.insert(TRAIN._WiresR, 0)
+    table.insert(TRAIN._WiresW, 0)
+    table.insert(TRAIN._WireOut, 0)
+end
+
+-- Metrostroi
+Metrostroi = {}
+Metrostroi.BaseSystems = {}
+Metrostroi.CtorSystems = {}
+
+--------------------------------------------------------------------------------
+-- Load FFI
+--------------------------------------------------------------------------------
+local OSes = {
+    Windows     = {x86 = "win32",x64 = "win64"},
+    Linux       = {x86 = "linux",x64 = "linux64"},
+    BSD         = {x86 = "linux",x64 = "linux64"},
+    POSIX       = {x86 = "linux",x64 = "linux64"},
+    OSX         = {x86 = "osx",  x64 = "osx"},
+    Other       = {x86 = "linux",x64 = "linux64"}
+}
+
+local postfix = OSes[jit.os] and OSes[jit.os][jit.arch]
 if postfix == nil then
     print("Can't find gm_turbostroi DLL")
     return
 end
 
-local dllPath = "./garrysmod/lua/bin/gmsv_turbostroi_"..postfix..".dll"
-
 local ffi = require("ffi")
 ffi.cdef[[
-bool ThreadSendMessage(void *p, int message, const char* system_name, const char* name, double index, double value);
-int ThreadReadAvailable(void* p);
 typedef struct {
-    int message;
-    const char* system_name;
+    int id;
+    const char* system;
     const char* name;
     double index;
     double value;
-} thread_msg;
-thread_msg& ThreadRecvMessage(void* p);
+} TThreadMsg;
+int ThreadReadAvailable(void* p);
+TThreadMsg& ThreadRecvMessage(void* p);
+bool ThreadSendMessage(void *p, int message, const char* system_name, const char* name, double index, double value);
 ]]
 
-local TS = ffi.load(dllPath)
-
-Metrostroi = {}
-local dataCache = {wires = {},wiresW = {},wiresL = {}}
-Metrostroi.BaseSystems = {} -- Systems that can be loaded
-Metrostroi.Systems = {} -- Constructors for systems
-
-LoadSystems = {} -- Systems that must be loaded/initialized
-GlobalTrain = {} -- Train emulator
-GlobalTrain.Systems = {} -- Train systems
-GlobalTrain.TrainWires = {}
-GlobalTrain.WriteTrainWires = {}
-
-function Metrostroi.DefineSystem(name)
-    TRAIN_SYSTEM = {}
-    Metrostroi.BaseSystems[name] = TRAIN_SYSTEM
-
-    -- Create constructor
-    Metrostroi.Systems[name] = function(train,...)
-        local tbl = { _base = name }
-        local TRAIN_SYSTEM = Metrostroi.BaseSystems[tbl._base]
-        if not TRAIN_SYSTEM then print("No system: "..tbl._base) return end
-        for k,v in pairs(TRAIN_SYSTEM) do
-            if type(v) == "function" then
-                tbl[k] = function(...)
-                    if not Metrostroi.BaseSystems[tbl._base][k] then
-                        print("ERROR",k,tbl._base)
-                    end
-                    return Metrostroi.BaseSystems[tbl._base][k](...)
-                end
-            else
-                tbl[k] = v
-            end
-        end
-
-        tbl.Initialize = tbl.Initialize or function() end
-        tbl.Think = tbl.Think or function() end
-        tbl.Inputs = tbl.Inputs or function() return {} end
-        tbl.Outputs = tbl.Outputs or function() return {} end
-        tbl.TriggerInput = tbl.TriggerInput or function() end
-        tbl.TriggerOutput = tbl.TriggerOutput or function() end
-
-        tbl.Train = train
-        tbl:Initialize(...)
-        tbl.OutputsList = tbl:Outputs()
-        tbl.InputsList = tbl:Inputs()
-        tbl.IsInput = {}
-        for k,v in pairs(tbl.InputsList) do tbl.IsInput[v] = true end
-        return tbl
-    end
-end
-
-function GlobalTrain.LoadSystem(self,a,b,...)
-    local name
-    local sys_name
-    if b then
-        name = b
-        sys_name = a
-    else
-        name = a
-        sys_name = a
-    end
-
-    if not Metrostroi.Systems[name] then print("Error: No system defined: "..name) return end
-    if self.Systems[sys_name] then print("Error: System already defined: "..sys_name)  return end
-
-    self[sys_name] = Metrostroi.Systems[name](self,...)
-    self[sys_name].Name = sys_name
-    self[sys_name].BaseName = name
-    self.Systems[sys_name] = self[sys_name]
-
-    -- Don't simulate on here
-    local no_acceleration = Metrostroi.BaseSystems[name].DontAccelerateSimulation
-    if no_acceleration then
-        self.Systems[sys_name].Think = function() end
-        self.Systems[sys_name].TriggerInput = function(train,name,value)
-            local v = value or 0
-            if type(value) == "boolean" then v = value and 1 or 0 end
-            TS.ThreadSendMessage(_userdata, 4,sys_name,name,0,v)
-        end -- replace with new api
-
-    --Precache values
-    elseif self[sys_name].OutputsList then
-        dataCache[sys_name] = {}
-        for _,name in pairs(self[sys_name].OutputsList) do
-            dataCache[sys_name][name] = 0--self[sys_name][name] or 0
-        end
-    end
-end
-
-function GlobalTrain.PlayOnce(self,soundid,location,range,pitch)
-    TS.ThreadSendMessage(_userdata, 2,soundid or "",location or "",range or 0,pitch or 0) -- replace with new api
-end
-
-function GlobalTrain.ReadTrainWire(self,n)
-    return self.TrainWires[n] or 0
-end
-
-function GlobalTrain.WriteTrainWire(self,n,v)
-    self.WriteTrainWires[n] = v
-end
-
---------------------------------------------------------------------------------
--- Main train code (turbostroi side)
---------------------------------------------------------------------------------
+local TS = ffi.load("./garrysmod/lua/bin/gmsv_turbostroi_"..postfix..".dll")
 print("[!] Train initialized!")
-function Think(dT)
-    -- Perform data exchange
-    DataExchange()
 
-    -- Simulate according to schedule
-    for i,s in ipairs(GlobalTrain.Schedule) do
-        for k,v in ipairs(s) do
-            v:Think(dT / (v.SubIterations or 1),i)
-        end
-    end
-end
+local tsReadAvailable = TS.ThreadReadAvailable
+local tsRecvMessage = TS.ThreadRecvMessage
+local tsSendMessage = TS.ThreadSendMessage
 
+local ud = _CWagon
+--------------------------------------------------------------------------------
+-- DLL functions
+--------------------------------------------------------------------------------
+LoadSystems = {}
 function Initialize()
     print("[!] Loading systems")
     local time = SysTime()
-    for k,v in ipairs(LoadSystems) do
-        GlobalTrain:LoadSystem(v[1],v[2])
+
+    -- Load train systems
+    for i,v in ipairs(LoadSystems) do
+        TRAIN:LoadSystem(v[1],v[2])
     end
-    print(string.format("[!] -Took %.2fs",SysTime()-time))
-    local iterationsCount = 1
-    if (not GlobalTrain.Schedule) or (iterationsCount ~= GlobalTrain.Schedule.IterationsCount) then
-        GlobalTrain.Schedule = { IterationsCount = iterationsCount }
-        local SystemIterations = {}
 
-        -- Find max number of iterations
-        local maxIterations = 0
-        for k,v in pairs(GlobalTrain.Systems) do
-            SystemIterations[k] = (v.SubIterations or 1)
-            maxIterations = math.max(maxIterations,(v.SubIterations or 1))
-        end
+    -- Build schedule
+    local max_iter = Turbostroi.ScheduleIter
+    for iteration=1,max_iter do
+        local tbl = {}
 
-        -- Create a schedule of simulation
-        for iteration=1,maxIterations do
-            GlobalTrain.Schedule[iteration] = {}
-            -- Populate schedule
-            for k,v in pairs(GlobalTrain.Systems) do
-                if ((iteration)%(maxIterations/(v.SubIterations or 1))) == 0 then
-                    table.insert(GlobalTrain.Schedule[iteration],v)
-                end
-
+        for i,v in ipairs(TRAIN._SysNames) do
+            local sys_iter = TRAIN[v].SubIterations or 1
+            if ((iteration)%(max_iter/sys_iter)) == 0 then
+                table.insert(tbl, TRAIN[v])
             end
         end
+
+        table.insert(Turbostroi.Schedule, tbl)
     end
-    GlobalTrain.Initialized = true
+
+    Turbostroi.Initialized = true
+    print(string.format("[!] -Took %.2fms",(SysTime()-time)*1000))
 end
-local msg_data
-local msg_count = 0
-local id,system,name,index,value
-function DataExchange()
-    -- Get data packets
-    msg_count = TS.ThreadReadAvailable(_userdata)
-    for i = 1, msg_count do
-        msg_data = TS.ThreadRecvMessage(_userdata)
-        if msg_data.message == 1 then
-            local system_name = ffi.string(msg_data.system_name)
-            if GlobalTrain.Systems[system_name] then
-                GlobalTrain.Systems[system_name][ffi.string(msg_data.name)] = msg_data.value
-            end
+
+
+local tsReadData
+local tsWriteData
+local tsRunString
+function Think(dT)
+    tsReadData()
+    
+    -- Run train systems
+    for iter,sch in ipairs(Turbostroi.Schedule) do
+        for _,sys in ipairs(sch) do
+            sys:Think(dT/(sys.SubIterations or 1), iter)
         end
-        if msg_data.message == 3 then
-            dataCache["wiresW"][msg_data.index] = msg_data.value
-        end
-        if msg_data.message == 4 then
-            local system_name = ffi.string(msg_data.system_name)
-            if GlobalTrain.Systems[system_name] then
-                GlobalTrain.Systems[system_name]:TriggerInput(ffi.string(msg_data.name),msg_data.value)
-            end
-        end
-        if msg_data.message == 5 then
-            dataCache["wiresL"] = {}
-        end
-        if msg_data.message == 6 then
-            local scr = [[
-            local _retdata=""
-            local print = function(...)
-                for k,v in ipairs({...}) do _retdata = _retdata..tostring(v).."\t" end
-                _retdata = _retdata.."\n"
-            end
-            ]]
-            scr = scr..ffi.string(msg_data.system_name)..ffi.string(msg_data.name).."\n"
-            scr = scr.."return _retdata"
-            local data,err = loadstring(scr)
-            if data then
-                local ret = tostring(data()) or "N\\A"
-                TS.ThreadSendMessage(_userdata, 6, ret, "",msg_data.index,i)
-            else
-                print(err)
-                TS.ThreadSendMessage(_userdata, 6, tostring(err), "",msg_data.index,0)
-            end
-            --Turbostroi.SendMessage(train,6,cmd:sub(1,255),cmd:sub(256,511),ply:UserID(),0)
-        end
-    end
-    for twid,value in pairs(dataCache["wiresW"]) do
-        GlobalTrain.TrainWires[twid] = value
     end
 
-    -- Output all variable values
-    for sys_name,system in pairs(GlobalTrain.Systems) do
-        if system.OutputsList and (not system.DontAccelerateSimulation) then
-            for _,name in pairs(system.OutputsList) do
-                local value = (system[name] or 0)
-                --if type(value) == "boolean" then value = value and 1 or 0 end
-                if not dataCache[sys_name] then print(sys_name) end
-                if dataCache[sys_name][name] ~= value then
-                    --print(sys_name,name,value)
-                    --if SendMessage(1,sys_name,name,0,tonumber(value) or 0) then -- OLD API
-                    if TS.ThreadSendMessage(_userdata, 1, sys_name , name, 0, tonumber(value) or 0) then -- NEW API
-                        dataCache[sys_name][name] = value
+    tsWriteData()
+end
+
+--------------------------------------------------------------------------------
+-- Preccess incoming engine messages
+--------------------------------------------------------------------------------
+local processMsgTbl = {
+    -----------------------------------
+    -- OutputsList values
+    -----------------------------------
+    [1] = function(train,system,name,index,value)
+        if train[system] then
+            train[system][name] = value
+        else
+            print("[TThreadMsg: 1] No system defined: "..system)
+        end
+    end,
+
+    -----------------------------------
+    -- Train wires values
+    -----------------------------------
+    [2] = function(train,system,name,index,value)
+        train._WiresR[index] = value
+    end,
+
+    -----------------------------------
+    -- TriggerInput for accelereted system
+    -----------------------------------
+    [3] = function(train,system,name,index,value)
+        if train[system] then
+            train[system]:TriggerInput(name,value)
+        else
+            print("[TThreadMsg: 3] No system defined: "..system)
+        end
+    end,
+
+    -----------------------------------
+    -- Not used
+    -----------------------------------
+    [4] = function(train,system,name,index,value) end,
+
+    -----------------------------------
+    -- lua_runstring in Turbostroi environment
+    -----------------------------------
+    [5] = function(train,system,name,index,value)
+        tsRunString(system..name, index, value)
+    end,
+}
+
+--------------------------------------------------------------------------------
+-- Read from engine data
+--------------------------------------------------------------------------------
+local train = TRAIN
+
+local msg
+local id = 0
+local system = ""
+local name = ""
+local index = 0
+local value = 0
+local msg_count = 0
+function tsReadData()
+    msg_count = tsReadAvailable(ud)
+    for i=1,msg_count do
+        msg = tsRecvMessage(ud)
+        id = msg.id
+        system = ffi.string(msg.system)
+        name = ffi.string(msg.name)
+        index = msg.index
+        value = msg.value
+
+        processMsgTbl[id](train,system,name,index,value)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Write to engine data
+--------------------------------------------------------------------------------
+local sys = {}
+local value = 0
+function tsWriteData()
+    -- Send wires
+    for i,v in pairs(train._WiresW) do
+        if train._WireOut[i] ~= v then
+            if tsSendMessage(ud, 2, "", "", i, v) then
+                train._WireOut[i] = v
+            -- else
+            --     print("Fail to send Wire item: "..i)
+            end
+        end
+    end
+
+    -- Send outputs
+    for i,sys_name in ipairs(train._SysNames) do
+        sys = train[sys_name]
+
+        if sys.OutputsList and (not sys.DontAccelerateSimulation) then
+            for _,name in ipairs(sys.OutputsList) do
+                if train._DataOut[sys_name][name] ~= sys[name] then
+                    value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
+                    if tsSendMessage(ud, 1, sys_name, name, 0, value) then
+                        train._DataOut[sys_name][name] = sys[name]
+                    -- else
+                    --     print("Fail to send OutputsList item: "..sys_name..name)
                     end
                 end
             end
         end
     end
-
-    -- Output train wire writes
-    local prevTime = PrevTime()
-    local curTime = CurTime()
-    for twID,value in pairs(GlobalTrain.WriteTrainWires) do
-        --local value = tonumber(value) or 0
-        if dataCache["wires"][twID] ~= value then
-            dataCache["wires"][twID] = value
-            dataCache["wiresL"][twID] = false
-        end
-        if not dataCache["wiresL"][twID] or dataCache["wiresL"][twID]~=(prevTime) then
-            --SendMessage(3,"","on",tonumber(twID) or 0,dataCache["wires"][twID]) -- OLD API
-            TS.ThreadSendMessage(_userdata, 3, "", "on", tonumber(twID) or 0, dataCache["wires"][twID]) -- NEW API
-            --print("[!]Wire "..twID.." starts update! Value "..dataCache["wires"][twID])
-        end
-        GlobalTrain.WriteTrainWires[twID] = nil
-        dataCache["wiresL"][twID] = curTime
-    end
-    
-    for twID,time in pairs(dataCache["wiresL"]) do
-        if time~=curTime then
-            TS.ThreadSendMessage(_userdata,3, "", "off", tonumber(twID) or 0, 0)
-            --print("[!]Wire "..twID.." stops update!")
-            dataCache["wiresL"][twID] = nil
-        end
-    end
-    --SendMessage(5,"","",0,0) -- OLD API
-    --C.ThreadSendMessage(_userdata, 5,"","",0,0) -- NEW API
-    --print(string.format("%s %s",count,#msgCache))
-    --count = 0
-
 end
+
+--------------------------------------------------------------------------------
+-- lua_runstring in Turbostroi environment
+--------------------------------------------------------------------------------
+function tsRunString(str, userid, tid)
+    local scr = [[
+    local _retdata=""
+    local print = function(...)
+        for k,v in ipairs({...}) do _retdata = _retdata..tostring(v).."\t" end
+        _retdata = _retdata.."\n"
+    end
+    ]]
+    scr = scr..str.."\n"
+    scr = scr.."return _retdata"
+    local data,err = loadstring(scr)
+    if data then
+        local ret = tostring(data()) or "N\\A"
+        tsSendMessage(ud, 5, ret, "", userid, tid)
+    else
+        print(err)
+        tsSendMessage(ud, 5, tostring(err), "", userid, tid)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Train functions
+--------------------------------------------------------------------------------
+function TRAIN:ReadTrainWire(n)
+    return self._WiresR[n] or 0
+end
+
+function TRAIN:WriteTrainWire(n,v)
+    self._WiresW[n] = v
+end
+
+function TRAIN:PlayOnce(soundid,location,range,pitch)
+    tsSendMessage(ud, 4, soundid or "", location or "", range or 0.8, pitch or 1)
+end
+
+function TRAIN:LoadSystem(sys_name,name,...)
+    name = name or sys_name
+
+    if not Metrostroi.CtorSystems[name] then print("Error: No system defined: "..name) return end
+    if self[sys_name] then print("Error: System already defined: "..sys_name) end
+    local sys = Metrostroi.CtorSystems[name](self, ...)
+    sys.Name = sys_name
+    sys.BaseName = name
+    
+    if sys.DontAccelerateSimulation then
+        sys.Think = function() end -- Do nothing
+        sys.TriggerInput = function(train,name,value)
+            tsSendMessage(ud, 3, sys_name, name, 0,
+            (value==true) and 1 or (value==false) and 0 or tonumber(value) or 0)
+        end
+    else
+        if sys.OutputsList then
+            self._DataOut[sys_name] = {}
+            for i,k in ipairs(sys.OutputsList) do
+                self._DataOut[sys_name][k] = 0
+            end
+        end
+    end
+
+    -- Keep max iterations
+    Turbostroi.ScheduleIter = math.max(Turbostroi.ScheduleIter, sys.SubIterations or 1)
+
+    -- Save to train
+    self[sys_name] = sys
+    table.insert(self._SysNames, sys_name)
+end
+
+--------------------------------------------------------------------------------
+-- Metrostroi functions
+--------------------------------------------------------------------------------
+function Metrostroi.DefineSystem(name)
+    if not name then return end
+    TRAIN_SYSTEM = {}
+    Metrostroi.BaseSystems[name] = TRAIN_SYSTEM
+    Metrostroi.CtorSystems[name] = function(train, ...)
+        local base_sys = Metrostroi.BaseSystems[name]
+        if not base_sys then print("No system: "..name) return end
+
+        local sys = { _base = name, Train = train }
+
+        -- Copy data and functions from base system
+        for k,v in pairs(base_sys) do sys[k]=v end
+        sys.Initialize = sys.Initialize or function() end
+        sys.Think = sys.Think or function() end
+        sys.TriggerInput = sys.TriggerInput or function() end
+        sys.TriggerOutput = sys.TriggerOutput or function() end
+        
+        -- Get outputs
+        if sys.Outputs then sys.OutputsList = sys:Outputs() end
+        if sys.OutputsList and #sys.OutputsList == 0 then sys.OutputsList = nil end
+
+        -- Initialize system
+        sys:Initialize(...)
+        return sys
+    end
+end
+
+TURBOSTROI_LOADED = true

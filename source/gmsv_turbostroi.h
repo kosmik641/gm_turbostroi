@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#define TURBOSTROI_VERSION "v2.6.0"
+
 #if defined(_WIN32)
 #include <Windows.h>
 #elif defined(POSIX)
@@ -48,5 +50,6 @@
 // GlobalTrain
 #include "wagon.h"
 
+void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove = false);
 void ClearLoadCache(const CCommand& command);
 void ClearPrintQueue(const CCommand& command);
