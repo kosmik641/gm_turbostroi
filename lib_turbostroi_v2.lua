@@ -1,4 +1,4 @@
-if SERVER then
+if SERVER and Turbostroi then
 --------------------------------------------------------------------------------
 -- Serverside script
 --------------------------------------------------------------------------------
@@ -174,7 +174,7 @@ hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
     end)
 end)
 
-return end -- SERVER
+return end -- SERVER and Turbostroi
 
 
 if not TURBOSTROI then return end
@@ -194,13 +194,6 @@ TRAIN._WiresW = {}
 -- Data values buffer for send only when updated
 TRAIN._DataOut = {}
 TRAIN._WireOut = {}
-
--- Initialize train wires to zero values
-for i=1,128 do
-    table.insert(TRAIN._WiresR, 0)
-    table.insert(TRAIN._WiresW, 0)
-    table.insert(TRAIN._WireOut, 717)
-end
 
 -- Metrostroi
 Metrostroi = {}
