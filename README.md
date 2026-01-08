@@ -48,9 +48,9 @@ msvcbuild.bat static
 10.  Copy `projects\windows\vs2022\x86\Release\gmsv_turbostroi_win32.dll` to `GarrysModDS\garrysmod\lua\bin` (create `bin` folder if it doesn't exist) 
 
 # Manual for Linux GCC compile:
-1. Install `gcc-multilib`
+1. Install `gcc-multilib` and `g++-multilib`
 ```
-apt install gcc-multilib
+apt install gcc-multilib g++-multilib
 ```
 2. [Get](https://premake.github.io/download) `premake5` for Linux
 3. Place and run `premake5` in this folder:

@@ -47,9 +47,9 @@ msvcbuild.bat static
 10. Скопируйте `projects\windows\vs2022\x86\Release\gmsv_turbostroi_win32.dll` в `GarrysModDS\garrysmod\lua\bin` (создайте папку `bin`, если её нет)
 
 # Компиляция под Linux GCC:
-1. Установите пакет `gcc-multilib`
+1. Установите пакет `gcc-multilib` и `g++-multilib`
 ```
-apt install gcc-multilib
+apt install gcc-multilib g++-multilib
 ```
 2. [Скачайте](https://premake.github.io/download) `premake5` для Linux
 3. Скопируйте и запустите `premake5` в папке с этим репозиторием:
