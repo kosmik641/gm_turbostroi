@@ -1,6 +1,5 @@
 ﻿#pragma once
-
-#define TURBOSTROI_VERSION "v2.6.0"
+#include "version.h"
 
 #if defined(_WIN32)
 #include <Windows.h>

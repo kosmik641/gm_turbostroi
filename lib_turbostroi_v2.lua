@@ -24,7 +24,7 @@ local processMsgTbl = {
     end,
 
     -----------------------------------
-    -- Train wires values
+    -- WriteTrainWires values
     -----------------------------------
     [2] = function(train,system,name,index,value)
         if not train.TrainWireWritersID[index] then train.TrainWireWritersID[index] = true end
@@ -165,13 +165,39 @@ hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
     hook.Remove("EntityRemoved", "Turbostroi")
     concommand.Remove("metrostroi_turbostroi_run")
 
-    concommand.Add("metrostroi_turbostroi_run",function(ply,_,_,cmd)
-        if not IsValid(ply) or not ply:IsSuperAdmin() then return end
-        local train = ply:GetTrain()
-        if IsValid(train) then
-            tsSendMessage(train._CWagon, 5, cmd:sub(1,255), cmd:sub(256,511), ply:UserID(), train:EntIndex())
+    concommand.Add("metrostroi_turbostroi_run",function(ply,cmd,args,argStr)
+        if IsValid(ply) and not ply:IsSuperAdmin() then return end
+
+        local train
+        local entIdx = tonumber(args[1])
+        if entIdx then
+            train = Entity(entIdx)
+            argStr = string.Replace(argStr,args[1].." ","")
+        elseif IsValid(ply) and #argStr > 0 then
+            train = ply:GetTrain()
         end
-    end)
+
+        if not IsValid(train) or train.Base ~= "gmod_subway_base" then
+            if entIdx then
+                if IsValid(ply) then
+                    ply:PrintMessage(HUD_PRINTCONSOLE, "Train ["..entIdx.."] not found")
+                else
+                    MsgC(Color(255,0,0), "Turbostroi: Train ["..entIdx.."] not found\n")
+                end
+            else
+                if IsValid(ply) then
+                    ply:PrintMessage(HUD_PRINTCONSOLE, "Command usage:")
+                    ply:PrintMessage(HUD_PRINTCONSOLE, "\tmetrostroi_turbostroi_run [Code]")
+                    ply:PrintMessage(HUD_PRINTCONSOLE, "\tmetrostroi_turbostroi_run [Entity index] [Code]")
+                else
+                    print("Command usage: metrostroi_turbostroi_run [Entity index] [Code]")
+                end
+            end
+            return
+        end
+
+        tsSendMessage(train._CWagon, 5, argStr:sub(1,255), argStr:sub(256,511), IsValid(ply) and ply:UserID() or -1, train:EntIndex())
+    end, nil, "Run lua string in turbostroi train thread.")
 end)
 
 return end -- SERVER and Turbostroi
@@ -305,7 +331,7 @@ local processMsgTbl = {
     end,
 
     -----------------------------------
-    -- Train wires values
+    -- ReadTrainWires values
     -----------------------------------
     [2] = function(train,system,name,index,value)
         train._WiresR[index] = value
@@ -402,9 +428,10 @@ function tsRunString(str, userid, tid)
     local data,err = loadstring(scr)
     if data then
         local ret = tostring(data()) or "N\\A"
+        if userid == -1 then print(ret) return end
         tsSendMessage(ud, 5, ret, "", userid, tid)
     else
-        print(err)
+        if userid == -1 then print(err) return end
         tsSendMessage(ud, 5, tostring(err), "", userid, tid)
     end
 end
@@ -486,4 +513,4 @@ function Metrostroi.DefineSystem(name)
     end
 end
 
-TURBOSTROI_LOADED = true
+LIB_TURBOSTROI_VERSION = "v2.6.1"

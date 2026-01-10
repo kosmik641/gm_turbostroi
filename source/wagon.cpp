@@ -1,5 +1,6 @@
 #include "wagon.h"
 #include "shared_print.h"
+#include "version.h"
 #include <cstring>
 extern "C"
 {
@@ -161,15 +162,25 @@ bool CWagon::CheckLibLoaded()
 {
 	LOCAL_L;
 
-	lua_getglobal(L, "TURBOSTROI_LOADED");
-	if (lua_type(L, -1) == LUA_TBOOLEAN)
+	lua_getglobal(L, "LIB_TURBOSTROI_VERSION");
+	if (lua_type(L, -1) == LUA_TSTRING)
 	{
-		bool loaded = lua_toboolean(L, -1);
+		const char* ver = lua_tostring(L, -1);
 		lua_pop(L, 1);
-		return loaded;
-	}
 
-	return false;
+		if (strcmp(ver, TURBOSTROI_VERSION) == 0)
+			return true;
+		
+		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version (");
+		g_SharedPrint.Push(ver);
+		g_SharedPrint.Push("), please update to " TURBOSTROI_VERSION "\n");
+		return false;
+	}
+	else
+	{
+		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version, please update to " TURBOSTROI_VERSION "\n");
+		return false;
+	}
 }
 
 void CWagon::AddLoadSystem(TTrainSystem& sys)

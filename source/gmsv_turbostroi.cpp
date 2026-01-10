@@ -7,7 +7,7 @@ bool g_ForceThreadsFinished = false; // For correct unrequire module
 CGlobalVars* g_pServerGlobalVars = nullptr;
 std::atomic<float> g_CurrentTime = 0.0f;
 unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
-int g_SimThreadAffinityMask = 0xFFFFFFFF;
+unsigned int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
 std::unordered_map<std::string, std::string> g_LoadedFilesCache;
@@ -61,6 +61,12 @@ extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p)
 //------------------------------------------------------------------------------
 void threadSimulation(CWagon* userdata)
 {
+	if (userdata == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to get thread userdata!\n");
+		return;
+	}
+
 #if defined(_WIN32)
 	if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(g_SimThreadAffinityMask)))
 	{
@@ -80,13 +86,13 @@ void threadSimulation(CWagon* userdata)
 	ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Set affinity not supported on your system!");
 #endif
 
-	if (userdata == nullptr)
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to get thread userdata!\n");
-		return;
-	}
+	// Run initialize
+	userdata->Initialize();
 
-	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate)); // Wait for first messages from engine
+	// Wait for first messages from engine
+	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
+
+	// Run think
 	while (!g_ForceThreadsFinished && userdata && !userdata->IsFinished())
 	{
 		if (!userdata->UpdateCurTime(g_CurrentTime)) // Wait for server update
@@ -161,7 +167,7 @@ LUA_FUNCTION( API_InitializeTrain )
 {
 	CWagon* userdata = new CWagon();
 
-	// Train._sim_userdata = *CWagon
+	// Train._CWagon = *CWagon
 	LUA->PushUserType(userdata, Type::LightUserData);
 	LUA->SetField(1, "_CWagon");
 
@@ -188,7 +194,7 @@ LUA_FUNCTION( API_InitializeTrain )
 		LUA->PushBool(true);
 		LUA->SetField(1, "DontAccelerateSimulation");
 
-		// Train._sim_userdata = nil
+		// Train._CWagon = nil
 		LUA->PushNil();
 		LUA->SetField(1, "_CWagon");
 		delete userdata;
@@ -214,9 +220,6 @@ LUA_FUNCTION( API_InitializeTrain )
 		userdata->AddLoadSystem(g_LoadSystemList.front());
 		g_LoadSystemList.pop();
 	}
-
-	// Run initialize
-	userdata->Initialize();
 
 	// Hook call
 	HookRunTrainEnt(LUA, 1);
