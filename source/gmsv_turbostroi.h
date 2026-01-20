@@ -7,18 +7,6 @@
 #include <sched.h>
 #endif
 
-#if defined(_MSC_VER)
-#define TURBOSTROI_EXPORT __declspec(dllexport)
-#define TURBOSTROI_IMPORT __declspec(dllimport)
-#elif defined(__GNUC__)
-#define TURBOSTROI_EXPORT __attribute__((visibility("default")))
-#define TURBOSTROI_IMPORT
-#else
-#define TURBOSTROI_EXPORT
-#define TURBOSTROI_IMPORT
-#pragma warning Unknown dynamic link import/export semantics.
-#endif
-
 #define PushCFunc(_function,_name) LUA->PushCFunction(_function); LUA->SetField(-2, _name)
 
 // STD
@@ -29,19 +17,12 @@
 #include <vector>
 #include <atomic>
 
-// LuaJIT
-#include "lua.hpp"
+// Multithreading
+#include "affinity.h"
 
 // SourceSDK
-#include <GarrysMod/FactoryLoader.hpp>
 #include <GarrysMod/Lua/Interface.h>
-#include <eiface.h>
-#include <convar.h>
-#include <color.h>
-#include <game/server/iplayerinfo.h>
-
-// Mutex
-#include "mutex.h"
+#include "source_sdk.h"
 
 // Shared print
 #include "shared_print.h"
@@ -50,5 +31,4 @@
 #include "wagon.h"
 
 void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove = false);
-void ClearLoadCache(const CCommand& command);
-void ClearPrintQueue(const CCommand& command);
+void CVarMainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue);

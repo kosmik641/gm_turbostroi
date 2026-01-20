@@ -1,6 +1,6 @@
 #pragma once
 #include "ring_buffer.h"
-#include "mutex.h"
+#include <memory>
 #include <string>
 #include <chrono>
 extern "C"
@@ -59,6 +59,7 @@ public:
 	bool CheckLibLoaded();
 	void AddLoadSystem(TTrainSystem& sys);
 
+	void SimulationThreadFn();
 	void Initialize();
 	void Think();
 

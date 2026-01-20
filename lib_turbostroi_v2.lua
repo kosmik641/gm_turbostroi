@@ -163,6 +163,8 @@ hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
     hook.Remove("Think", "Turbostroi_Think")
     hook.Remove("OnEntityCreated", "Turbostroi")
     hook.Remove("EntityRemoved", "Turbostroi")
+    cvars.RemoveChangeCallback("turbostroi_main_cores", "turbostroi")
+    cvars.RemoveChangeCallback("turbostroi_train_cores", "turbostroi")
     concommand.Remove("metrostroi_turbostroi_run")
 
     concommand.Add("metrostroi_turbostroi_run",function(ply,cmd,args,argStr)
@@ -513,4 +515,4 @@ function Metrostroi.DefineSystem(name)
     end
 end
 
-LIB_TURBOSTROI_VERSION = "v2.6.1"
+LIB_TURBOSTROI_VERSION = "v2.7.0"

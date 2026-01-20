@@ -2,6 +2,7 @@
 #include "shared_print.h"
 #include "version.h"
 #include <cstring>
+#include <thread>
 extern "C"
 {
 #include "lj_obj.h"
@@ -208,6 +209,31 @@ void CWagon::AddLoadSystem(TTrainSystem& sys)
 	lua_pop(L, 2);
 }
 
+extern bool g_ForceThreadsFinished;
+extern unsigned int g_ThreadTickrate;
+extern std::atomic<float> g_CurrentTime;
+void CWagon::SimulationThreadFn()
+{
+	// Run initialize
+	Initialize();
+
+	// Wait for first messages from engine
+	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
+
+	// Run think
+	while (!g_ForceThreadsFinished && !IsFinished())
+	{
+		if (!UpdateCurTime(g_CurrentTime)) // Wait for server update
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(3));
+			continue;
+		}
+		Think();
+
+		std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
+	}
+}
+
 void CWagon::Initialize()
 {
 	LOCAL_L;
@@ -318,4 +344,37 @@ void CWagon::Finish()
 bool CWagon::IsFinished()
 {
 	return m_Finished;
+}
+
+//------------------------------------------------------------------------------
+// Turbostroi sim thread API for FFI
+//------------------------------------------------------------------------------
+extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value)
+{
+	CWagon* userdata = static_cast<CWagon*>(p);
+
+	if (userdata == nullptr)
+		return false;
+
+	return userdata->ThreadSendMessage(message, system_name, name, index, value);
+}
+
+extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
+{
+	CWagon* userdata = static_cast<CWagon*>(p);
+
+	if (userdata == nullptr)
+		return CWagon::s_EmptyMsg;
+
+	return userdata->ThreadRecvMessage();
+}
+
+extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p)
+{
+	CWagon* userdata = static_cast<CWagon*>(p);
+
+	if (userdata == nullptr)
+		return 0;
+
+	return userdata->ThreadReadAvailable();
 }

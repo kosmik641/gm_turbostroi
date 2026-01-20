@@ -1,60 +1,41 @@
 ﻿#include "gmsv_turbostroi.h"
-using namespace GarrysMod::Lua;
+namespace GM = GarrysMod::Lua;
+
 //------------------------------------------------------------------------------
 // Global variables
 //------------------------------------------------------------------------------
 bool g_ForceThreadsFinished = false; // For correct unrequire module
-CGlobalVars* g_pServerGlobalVars = nullptr;
 std::atomic<float> g_CurrentTime = 0.0f;
 unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
-unsigned int g_SimThreadAffinityMask = 0xFFFFFFFF;
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
 std::unordered_map<std::string, std::string> g_LoadedFilesCache;
-SharedPrint g_SharedPrint;
+extern SharedPrint g_SharedPrint;
 
 //------------------------------------------------------------------------------
 // Global variables for Source SDK
 //------------------------------------------------------------------------------
 extern ICvar* cvar;
 extern ICvar* g_pCVar;
-static ConVar g_CVarDisableCache("turbostroi_disable_cache", "0", FCVAR_NONE, "Disable scripts cache for development");
-static ConCommand g_CmdClearCache("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems");
-static ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Clear print queue");
+extern CGlobalVars* g_pServerGlobalVars;
+extern ConVar g_CVarDisableCache;
+extern ConVar g_CVarMainCores;
+extern ConVar g_CVarTrainCores;
 
 //------------------------------------------------------------------------------
-// Turbostroi sim thread API
+// Affinity groups
 //------------------------------------------------------------------------------
-extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const char* system_name, const char* name, double index, double value)
-{
-	CWagon* userdata = static_cast<CWagon*>(p);
-
-	if (userdata == nullptr)
-		return false;
-
-	return userdata->ThreadSendMessage(message, system_name, name, index, value);
-}
-
-extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
-{
-	CWagon* userdata = static_cast<CWagon*>(p);
-
-	if (userdata == nullptr)
-		return CWagon::s_EmptyMsg;
-		
-
-	return userdata->ThreadRecvMessage();
-}
-
-extern "C" TURBOSTROI_EXPORT int ThreadReadAvailable(void* p)
-{
-	CWagon* userdata = static_cast<CWagon*>(p);
-
-	if (userdata == nullptr)
-		return 0;
-
-	return userdata->ThreadReadAvailable();
-}
+extern size_t g_ProcessorCount;
+#if defined(_WIN32)
+extern std::array<GROUP_AFFINITY, 32> g_MainThreadGroupAffinity;
+extern std::array<GROUP_AFFINITY, 32> g_SimThreadGroupAffinity;
+#elif defined(POSIX)
+extern cpu_set_t g_MainThreadGroupAffinity;
+extern cpu_set_t g_SimThreadGroupAffinity;
+#else
+extern size_t g_MainThreadGroupAffinity;
+extern size_t g_SimThreadGroupAffinity;
+#endif
 
 //------------------------------------------------------------------------------
 // Turbostroi sim thread
@@ -67,43 +48,20 @@ void threadSimulation(CWagon* userdata)
 		return;
 	}
 
-#if defined(_WIN32)
-	if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(g_SimThreadAffinityMask)))
+	if (SetAffinityMask(CurrentThread(), g_SimThreadGroupAffinity))
 	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: SetSTAffinityMask failed on train thread!\n");
+		std::string str = "[!] Train thread running on CPU";
+		str += std::to_string(CurrentCPU());
+		str += "\n";
+
+		g_SharedPrint.Push(str);
 	}
-#elif defined(POSIX)
-	cpu_set_t cpuSet;
-	CPU_ZERO(&cpuSet);
-
-	for (int i = 0; i < 32; i++)
-		if (g_SimThreadAffinityMask & (1 << i))
-			CPU_SET(i, &cpuSet);
-
-	if (sched_setaffinity(getpid(), sizeof(cpuSet), &cpuSet))
-		ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: SetSTAffinityMask failed on train thread! (0x%04X)\n", errno);
-#else
-	ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Set affinity not supported on your system!");
-#endif
-
-	// Run initialize
-	userdata->Initialize();
-
-	// Wait for first messages from engine
-	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
-
-	// Run think
-	while (!g_ForceThreadsFinished && userdata && !userdata->IsFinished())
+	else
 	{
-		if (!userdata->UpdateCurTime(g_CurrentTime)) // Wait for server update
-		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(3));
-			continue;
-		}
-		userdata->Think();
-
-		std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Failed to set affinity mask of train thread!\n");
 	}
+
+	userdata->SimulationThreadFn();
 
 	//Release resources
 	g_SharedPrint.Push("[!] Terminating train thread\n");
@@ -113,7 +71,7 @@ void threadSimulation(CWagon* userdata)
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
 //------------------------------------------------------------------------------
-bool loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filename)
+bool loadLua(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 {
 	// Get file from cache
 	bool useCache = !g_CVarDisableCache.GetBool();
@@ -149,9 +107,9 @@ bool loadLua(GarrysMod::Lua::ILuaBase* LUA, CWagon* userdata, const char* filena
 	}
 }
 
-int GetEntIndex(GarrysMod::Lua::ILuaBase* LUA, int iStackPos)
+int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 {	
-	if (LUA->GetType(iStackPos) != GarrysMod::Lua::Type::Entity)
+	if (LUA->GetType(iStackPos) != GM::Type::Entity)
 		return -1;
 
 	int entIndex = -1;
@@ -168,7 +126,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	CWagon* userdata = new CWagon();
 
 	// Train._CWagon = *CWagon
-	LUA->PushUserType(userdata, Type::LightUserData);
+	LUA->PushUserType(userdata, GM::Type::LightUserData);
 	LUA->SetField(1, "_CWagon");
 
 	// Store entity index of wagon
@@ -179,7 +137,7 @@ LUA_FUNCTION( API_InitializeTrain )
 		g_LoadedFilesCache.clear();
 	
 	// Push GLOB, file on top
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
 	LUA->GetField(-1, "file");
 
 	// Load neccessary files
@@ -234,7 +192,7 @@ LUA_FUNCTION( API_InitializeTrain )
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
 	LUA->GetField(1,"_CWagon");
-		CWagon* userdata = LUA->GetUserType<CWagon>(-1, Type::LightUserData);
+		CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
 		if (userdata) userdata->Finish();
 	LUA->Pop();
 
@@ -270,13 +228,13 @@ LUA_FUNCTION( API_RegisterSystem )
 
 LUA_FUNCTION( API_TriggerInput )
 {
-	if (!LUA->IsType(1, Type::Entity) ||
-		!LUA->IsType(2, Type::String) ||
-		!LUA->IsType(3, Type::String))
+	if (!LUA->IsType(1, GM::Type::Entity) ||
+		!LUA->IsType(2, GM::Type::String) ||
+		!LUA->IsType(3, GM::Type::String))
 		return 0;
 
 	LUA->GetField(1, "_CWagon");
-	CWagon* userdata = LUA->GetUserType<CWagon>(-1, Type::LightUserData);
+	CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
 	LUA->Pop();
 
 	if (userdata == nullptr)
@@ -287,9 +245,9 @@ LUA_FUNCTION( API_TriggerInput )
 	double value;
 
 	int valueT = LUA->GetType(4);
-	if (valueT == Type::Number)
+	if (valueT == GM::Type::Number)
 		value = LUA->GetNumber(4);
-	else if (valueT == Type::Bool)
+	else if (valueT == GM::Type::Bool)
 		value = LUA->GetBool(4);
 	else
 		value = 0;
@@ -301,7 +259,7 @@ LUA_FUNCTION( API_TriggerInput )
 
 LUA_FUNCTION( API_SendMessage ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
 	if (userdata == nullptr)
 	{
@@ -309,11 +267,11 @@ LUA_FUNCTION( API_SendMessage )
 		return 1;
 	}
 
-	LUA->CheckType(2,Type::Number);
-	LUA->CheckType(3,Type::String);
-	LUA->CheckType(4,Type::String);
-	LUA->CheckType(5,Type::Number);
-	LUA->CheckType(6,Type::Number);
+	LUA->CheckType(2,GM::Type::Number);
+	LUA->CheckType(3,GM::Type::String);
+	LUA->CheckType(4,GM::Type::String);
+	LUA->CheckType(5,GM::Type::Number);
+	LUA->CheckType(6,GM::Type::Number);
 
 	int message = LUA->GetNumber(2);
 	const char* system_name = LUA->GetString(3);
@@ -337,7 +295,7 @@ LUA_FUNCTION( API_RecvMessages )
 
 LUA_FUNCTION( API_RecvMessage ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
 	if (userdata == nullptr)
 		return 0;
@@ -353,7 +311,7 @@ LUA_FUNCTION( API_RecvMessage )
 
 LUA_FUNCTION( API_ReadAvailable ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, Type::LightUserData);
+	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
 	if (userdata != nullptr)
 		LUA->PushNumber(userdata->SimReadAvailable());
@@ -365,9 +323,9 @@ LUA_FUNCTION( API_ReadAvailable )
 
 LUA_FUNCTION( API_SetSimulationFPS ) 
 {
-	LUA->CheckType(1,Type::Number);
+	LUA->CheckType(1, GM::Type::Number);
 	double FPS = LUA->GetNumber(1);
-	if (!FPS)
+	if (FPS == 0)
 		return 0;
 
 	g_ThreadTickrate = (1000000.0 / FPS);
@@ -375,55 +333,15 @@ LUA_FUNCTION( API_SetSimulationFPS )
 	return 0;
 }
 
-LUA_FUNCTION( API_SetMTAffinityMask ) 
+LUA_FUNCTION( API_SetMTAffinityMask )
 {
-	LUA->CheckType(1, Type::Number);
-	int MTAffinityMask = (int)LUA->GetNumber(1);
-
-	if (MTAffinityMask == 0)
-	{
-		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Affinity mask 0 not allowed.\n");
-		MTAffinityMask = 0xFFFFFFFF; // Set mask to all processors
-	}
-
-#if defined(_WIN32)
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Main Thread Running on CPU%i\n", GetCurrentProcessorNumber());
-
-	if (!SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(MTAffinityMask)))
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: SetMTAffinityMask failed!\n");
-	else
-		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to CPU%i\n", GetCurrentProcessorNumber());
-#elif defined(POSIX)
-	cpu_set_t cpuSet;
-	CPU_ZERO(&cpuSet);
-
-	for (int i = 0; i < 32; i++)
-		if (MTAffinityMask & (1 << i))
-			CPU_SET(i, &cpuSet);
-
-	if (sched_setaffinity(getpid(), sizeof(cpuSet), &cpuSet))
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: SetMTAffinityMask failed on train thread! (0x%04X)\n", errno);
-	else
-		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to CPU%i\n", sched_getcpu());
-#else
-	ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Set affinity not supported on your system!");
-#endif
-
+	// Removed and saved for compability
 	return 0;
 }
 
 LUA_FUNCTION( API_SetSTAffinityMask ) 
 {
-	LUA->CheckType(1, Type::Number);
-	g_SimThreadAffinityMask = LUA->GetNumber(1);
-
-	if (g_SimThreadAffinityMask == 0)
-	{
-		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Affinity mask 0 not allowed.\n");
-		g_SimThreadAffinityMask = 0xFFFFFFFF; // Set mask to all processors
-	}
-	
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Assign Train Threads affinity to %d\n", g_SimThreadAffinityMask);
+	// Removed and saved for compability
 	return 0;
 }
 
@@ -434,9 +352,8 @@ LUA_FUNCTION( API_StartRailNetwork )
 }
 
 //------------------------------------------------------------------------------
-// Initialization SourceSDK
+// SourceSDK
 //------------------------------------------------------------------------------
-//extern CGlobalVars* gpGlobals;
 LUA_FUNCTION_DECLARE( Think_handler )
 {
 	g_CurrentTime = g_pServerGlobalVars->curtime;
@@ -444,18 +361,18 @@ LUA_FUNCTION_DECLARE( Think_handler )
 	return 0;
 }
 
-void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove)
+void HookRunTrainEnt(GM::ILuaBase* LUA, int entStackPos, bool remove)
 {
 	if (LUA == nullptr)
 		return;
 
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
 	{
 		LUA->GetField(-1, "hook");
-		if (LUA->IsType(-1, Type::Table))
+		if (LUA->IsType(-1, GM::Type::Table))
 		{
 			LUA->GetField(-1, "Run");
-			if (LUA->IsType(-1, Type::Function))
+			if (LUA->IsType(-1, GM::Type::Function))
 			{
 				LUA->PushString(remove ? "TurbostroiWagonRemove" : "TurbostroiWagonCreate");
 				LUA->Push(entStackPos);
@@ -466,10 +383,34 @@ void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove
 	LUA->Pop(2);
 }
 
-void InstallHooks(ILuaBase* LUA)
+void CVarMainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
+{
+	ConVarRef ref(var);
+
+	if (!SetThreadGroup(g_MainThreadGroupAffinity, ref.GetString()))
+		return;
+
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Main thread running on CPU%d\n", CurrentCPU());
+	if (!SetAffinityMask(CurrentThread(), g_MainThreadGroupAffinity))
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Set main thread affinity mask failed!\n");
+	}
+	else
+	{
+		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to CPU%d\n", CurrentCPU());
+	};
+}
+
+void CVarTrainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
+{
+	ConVarRef ref(var);
+	SetThreadGroup(g_SimThreadGroupAffinity, ref.GetString());
+}
+
+void InstallHooks(GM::ILuaBase* LUA)
 {
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Installing hooks!\n");
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
 		LUA->GetField(-1, "hook");
 			LUA->GetField(-1, "Add");
 				LUA->PushString("Think");
@@ -497,54 +438,17 @@ void ClearPrintQueue(const CCommand& command)
 }
 
 //------------------------------------------------------------------------------
-// SourceSDK
-//------------------------------------------------------------------------------
-bool RegisterConCommands()
-{
-	SourceSDK::FactoryLoader vstdlib_loader("vstdlib");
-	cvar = g_pCVar = vstdlib_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
-	if (g_pCVar == nullptr)
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load CVAR Interface!\n");
-		return false;
-	}
-
-	g_pCVar->RegisterConCommand(&g_CmdClearCache);
-	g_pCVar->RegisterConCommand(&g_CmdClearPrint);
-	g_pCVar->RegisterConCommand(&g_CVarDisableCache);
-	return true;
-}
-
-bool GetGlobalVars()
-{
-	SourceSDK::FactoryLoader server_loader("server");
-	IPlayerInfoManager* pIPlayerInfoManager = server_loader.GetInterface<IPlayerInfoManager>(INTERFACEVERSION_PLAYERINFOMANAGER);
-
-	if (pIPlayerInfoManager == nullptr)
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load PlayerInfoManager Interface!\n");
-		return false;
-	}
-	g_pServerGlobalVars = pIPlayerInfoManager->GetGlobalVars();
-	
-	return (g_pServerGlobalVars != nullptr);
-}
-
-//------------------------------------------------------------------------------
 // Initialization
 //------------------------------------------------------------------------------
 GMOD_MODULE_OPEN()
 {
-	if (!GetGlobalVars())
-		return 0;
-
-	if (!RegisterConCommands())
+	if (!InitSourceSDK())
 		return 0;
 
 	//Check whether being ran on server
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
 		LUA->GetField(-1,"SERVER");
-		if (LUA->IsType(-1, Type::Nil))
+		if (LUA->IsType(-1, GM::Type::Nil))
 		{
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
 			return 0;
@@ -553,7 +457,7 @@ GMOD_MODULE_OPEN()
 
 		//Check for global table
 		LUA->GetField(-1,"Metrostroi");
-		if (LUA->IsType(-1, Type::Nil))
+		if (LUA->IsType(-1, GM::Type::Nil))
 		{
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
 			return 0;
@@ -590,7 +494,7 @@ GMOD_MODULE_OPEN()
 
 	//Print some information
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: [" TURBOSTROI_VERSION "] DLL initialized (built " __DATE__ ")\n");
-	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", std::thread::hardware_concurrency());
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", g_ProcessorCount);
 
 	if (!g_CurrentTime.is_lock_free())
 		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Not fully supported! Perfomance may be decreased.\n");
@@ -604,16 +508,12 @@ GMOD_MODULE_OPEN()
 GMOD_MODULE_CLOSE()
 {
 	g_ForceThreadsFinished = true;
-	if (g_pCVar != nullptr)
-	{
-		g_pCVar->UnregisterConCommand(&g_CmdClearCache);
-		g_pCVar->UnregisterConCommand(&g_CmdClearPrint);
-		g_pCVar->UnregisterConCommand(&g_CVarDisableCache);
-	}
 
-	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	ShutdownSourceSDK();
+
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
 		LUA->GetField(-1, "Metrostroi");
-			if (LUA->IsType(-1, Type::Table)) {
+			if (LUA->IsType(-1, GM::Type::Table)) {
 				LUA->CreateTable();
 				LUA->SetField(-2, "TurbostroiRegistered");
 			}
@@ -626,7 +526,7 @@ GMOD_MODULE_CLOSE()
 	LUA->Pop(2);
 	
 	LUA->PushNil();
-	LUA->SetField(GarrysMod::Lua::INDEX_GLOBAL, "Turbostroi");
+	LUA->SetField(GM::INDEX_GLOBAL, "Turbostroi");
 
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL unloaded.\n");
 	return 0;

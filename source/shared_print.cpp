@@ -83,3 +83,6 @@ int SharedPrint::PrintL(lua_State* L)
     g_SharedPrint.Push(msg);
     return 0;
 }
+
+// Singleton
+SharedPrint g_SharedPrint;

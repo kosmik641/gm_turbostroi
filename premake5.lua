@@ -7,7 +7,9 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 		IncludeSDKTier0()
 		IncludeSDKTier1()
 
-		includedirs("external/luajit/src")
+		externalincludedirs("external/boost/config/include")
+		externalincludedirs("external/boost/multiprecision/include")
+		externalincludedirs("external/luajit/src")
 		
 		files({
 			"source/include/**.h",
