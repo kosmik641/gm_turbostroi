@@ -1,8 +1,13 @@
 #include "source_sdk.h"
+#include "filesystem_stl.h"
 #include <utlbuffer.h>
 #include <GarrysMod/FactoryLoader.hpp>
 #include <game/server/iplayerinfo.h>
 
+// Custom filesystem
+CFileSystem_STL g_FileSystem;
+
+// Console variables
 ConVar g_CVarDisableCache("turbostroi_disable_cache", "0", FCVAR_NONE, "Disable scripts cache for development");
 ConVar g_CVarMainCores("turbostroi_main_cores", "0", FCVAR_NONE, "Set affinity mask for main thread", CVarMainCoresCallback);
 ConVar g_CVarTrainCores("turbostroi_train_cores", "0", FCVAR_NONE, "Set affinity mask for train threads", CVarTrainCoresCallback);
@@ -25,42 +30,12 @@ bool GetGlobalVars()
 	return (g_pServerGlobalVars != nullptr);
 }
 
-IFileSystem* g_pFileSystem = nullptr;
-bool InitFileSystem()
-{
-	Sys_LoadInterface("filesystem_stdio", FILESYSTEM_INTERFACE_VERSION, nullptr, (void**)&g_pFileSystem);
-	if (g_pFileSystem == nullptr)
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load FileSystem Interface!\n");
-		return false;
-	}
 
-	if (!g_pFileSystem->Connect(Sys_GetFactory("vstdlib")))
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to connect FileSystem Interface!\n");
-		g_pFileSystem->Shutdown();
-		g_pFileSystem = nullptr;
-		return false;
-	};
-
-	if (!g_pFileSystem->Init())
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to init FileSystem Interface!\n");
-		g_pFileSystem->Shutdown();
-		g_pFileSystem = nullptr;
-		return false;
-	}
-
-	g_pFileSystem->AddSearchPath("garrysmod", "MOD");
-	g_pFileSystem->AddSearchPath("garrysmod/data", "DATA");
-
-	return true;
-}
 
 KeyValues* g_pKVTurbostroi = nullptr;
 void SaveSettings()
 {
-	if (g_pFileSystem == nullptr || g_pKVTurbostroi == nullptr)
+	if (g_pKVTurbostroi == nullptr)
 		return;
 
 	// Save to KeyValues
@@ -71,13 +46,13 @@ void SaveSettings()
 		g_pKVTurbostroi->SetString(g_CVarTrainCores.GetName(), g_CVarTrainCores.GetString());
 
 	// Write to file
-	FileHandle_t f = g_pFileSystem->Open("cfg/turbostroi.cfg", "wb", "MOD");
+	FileHandle_t f = g_FileSystem.Open("garrysmod/cfg/turbostroi.cfg", "wb");
 	if (f != FILESYSTEM_INVALID_HANDLE)
 	{
 		CUtlBuffer buf;
 		g_pKVTurbostroi->RecursiveSaveToFile(buf, 0, false, false);
-		g_pFileSystem->Write(buf.Base(), buf.TellPut(), f);
-		g_pFileSystem->Close(f);
+		g_FileSystem.Write(buf.Base(), buf.TellPut(), f);
+		g_FileSystem.Close(f);
 	}
 	else
 		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: Fail to save settings.\n");
@@ -102,7 +77,7 @@ bool RegisterConCommands()
 
 	// Load values (FCVAR_ARCHIVE not working)
 	g_pKVTurbostroi = new KeyValues("Turbostroi");
-	if (g_pKVTurbostroi->LoadFromFile(g_pFileSystem, "cfg/turbostroi.cfg", "MOD"))
+	if (g_pKVTurbostroi->LoadFromFile(&g_FileSystem, "garrysmod/cfg/turbostroi.cfg"))
 	{
 		const char* main_cores = g_pKVTurbostroi->GetString(g_CVarMainCores.GetName(), g_CVarMainCores.GetDefault());
 		const char* train_cores = g_pKVTurbostroi->GetString(g_CVarTrainCores.GetName(), g_CVarTrainCores.GetDefault());
@@ -116,7 +91,7 @@ bool RegisterConCommands()
 
 		// Load values from Lua CVars
 		KeyValues* kvLuaCVars = new KeyValues("CVars");
-		if (kvLuaCVars->LoadFromFile(g_pFileSystem, "cfg/server.vdf", "MOD"))
+		if (kvLuaCVars->LoadFromFile(&g_FileSystem, "garrysmod/cfg/server.vdf"))
 		{
 			main_cores = kvLuaCVars->GetString(g_CVarMainCores.GetName(), "1");
 			train_cores = kvLuaCVars->GetString(g_CVarTrainCores.GetName(), "254");
@@ -142,9 +117,6 @@ bool InitSourceSDK()
 	if (!GetGlobalVars())
 		return false;
 
-	if (!InitFileSystem())
-		return false;
-
 	if (!RegisterConCommands())
 		return false;
 
@@ -159,13 +131,6 @@ void ShutdownSourceSDK()
 	{
 		g_pKVTurbostroi->deleteThis();
 		g_pKVTurbostroi = nullptr;
-	}
-
-	if (g_pFileSystem != nullptr)
-	{
-		g_pFileSystem->Shutdown();
-		g_pFileSystem->Disconnect();
-		g_pFileSystem = nullptr;
 	}
 
 	if (g_pCVar != nullptr)
