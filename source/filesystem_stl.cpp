@@ -26,6 +26,17 @@ int CFileSystem_STL::Write(void const* pInput, int size, FileHandle_t file)
 
 FileHandle_t CFileSystem_STL::Open(const char* pFileName, const char* pOptions, const char* pathID)
 {
+    fs::path absolutePath = pFileName;
+    try
+    {
+        absolutePath = std::filesystem::absolute(pFileName).lexically_normal();
+    }
+    catch (const std::exception& e)
+    {
+        Error("CFileSystem_STL::Open(): Fail to make absolute path from %s (%s)\n", pFileName, e.what());
+        return nullptr;
+    }
+
     std::ios::openmode mode{};
 
     switch (*pOptions++)
@@ -50,7 +61,7 @@ FileHandle_t CFileSystem_STL::Open(const char* pFileName, const char* pOptions, 
         mode |= std::ios::in | std::ios::out;
     }
 
-    std::fstream* f = new std::fstream(pFileName, mode);
+    std::fstream* f = new std::fstream(absolutePath, mode);
     if (!f->is_open())
     {
         delete f;
