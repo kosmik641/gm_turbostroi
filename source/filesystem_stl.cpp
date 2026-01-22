@@ -50,7 +50,7 @@ FileHandle_t CFileSystem_STL::Open(const char* pFileName, const char* pOptions, 
         mode |= std::ios::in | std::ios::out;
     }
 
-    std::fstream* f = new std::fstream(pFileName);
+    std::fstream* f = new std::fstream(pFileName, mode);
     if (!f->is_open())
     {
         delete f;

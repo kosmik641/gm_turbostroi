@@ -79,7 +79,7 @@ bool SetAffinityMask(std::thread::native_handle_type handle, const T& group)
 	bool status = true;
 
 	// New WinAPI in Win11
-	typedef BOOL(*pFnSetThreadSelectedCpuSetMasks)(HANDLE Thread, PGROUP_AFFINITY CpuSetMasks, USHORT CpuSetMaskCount);
+	typedef BOOL(WINAPI *pFnSetThreadSelectedCpuSetMasks)(HANDLE Thread, PGROUP_AFFINITY CpuSetMasks, USHORT CpuSetMaskCount);
 	static pFnSetThreadSelectedCpuSetMasks fnSetThreadSelectedCpuSetMasks = nullptr;
 	static char win11API = -1;
 	if (win11API == -1)
