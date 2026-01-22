@@ -1,4 +1,5 @@
 #include "filesystem_stl.h"
+
 #include <fstream>
 #include <filesystem>
 #include <utlbuffer.h>
@@ -29,7 +30,7 @@ FileHandle_t CFileSystem_STL::Open(const char* pFileName, const char* pOptions, 
     fs::path absolutePath = pFileName;
     try
     {
-        absolutePath = std::filesystem::absolute(pFileName).lexically_normal();
+        absolutePath = fs::absolute(pFileName).lexically_normal();
     }
     catch (const std::exception& e)
     {

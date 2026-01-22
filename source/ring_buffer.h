@@ -1,5 +1,4 @@
 #pragma once
-#include <cstddef>
 #include <atomic>
 
 template<class _Ty, std::size_t _Size>

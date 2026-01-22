@@ -1,5 +1,17 @@
 ﻿#include "gmsv_turbostroi.h"
+
+#include <thread>
+#include <vector>
+#include <queue>
+#include <GarrysMod/Lua/Interface.h>
+#include "affinity.h"
+#include "source_sdk.h"
+#include "shared_print.h"
+#include "wagon.h"
+
 namespace GM = GarrysMod::Lua;
+
+#define PushCFunc(_function,_name) LUA->PushCFunction(_function); LUA->SetField(-2, _name)
 
 //------------------------------------------------------------------------------
 // Global variables
@@ -10,7 +22,6 @@ unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
 std::unordered_map<std::string, std::string> g_LoadedFilesCache;
-extern SharedPrint g_SharedPrint;
 
 //------------------------------------------------------------------------------
 // Global variables for Source SDK
@@ -19,54 +30,11 @@ extern ICvar* cvar;
 extern ICvar* g_pCVar;
 extern CGlobalVars* g_pServerGlobalVars;
 extern ConVar g_CVarDisableCache;
-extern ConVar g_CVarMainCores;
-extern ConVar g_CVarTrainCores;
 
 //------------------------------------------------------------------------------
-// Affinity groups
+// Hook declaration
 //------------------------------------------------------------------------------
-extern size_t g_ProcessorCount;
-#if defined(_WIN32)
-extern std::array<GROUP_AFFINITY, 32> g_MainThreadGroupAffinity;
-extern std::array<GROUP_AFFINITY, 32> g_SimThreadGroupAffinity;
-#elif defined(POSIX)
-extern cpu_set_t g_MainThreadGroupAffinity;
-extern cpu_set_t g_SimThreadGroupAffinity;
-#else
-extern size_t g_MainThreadGroupAffinity;
-extern size_t g_SimThreadGroupAffinity;
-#endif
-
-//------------------------------------------------------------------------------
-// Turbostroi sim thread
-//------------------------------------------------------------------------------
-void threadSimulation(CWagon* userdata)
-{
-	if (userdata == nullptr)
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to get thread userdata!\n");
-		return;
-	}
-
-	if (SetAffinityMask(CurrentThread(), g_SimThreadGroupAffinity))
-	{
-		std::string str = "[!] Train thread running on CPU";
-		str += std::to_string(CurrentCPU());
-		str += "\n";
-
-		g_SharedPrint.Push(str);
-	}
-	else
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Failed to set affinity mask of train thread!\n");
-	}
-
-	userdata->SimulationThreadFn();
-
-	//Release resources
-	g_SharedPrint.Push("[!] Terminating train thread\n");
-	delete userdata;
-}
+void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove = false);
 
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
@@ -124,6 +92,8 @@ int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 LUA_FUNCTION( API_InitializeTrain ) 
 {
 	CWagon* userdata = new CWagon();
+	if (userdata == nullptr)
+		return 0;
 
 	// Train._CWagon = *CWagon
 	LUA->PushUserType(userdata, GM::Type::LightUserData);
@@ -183,7 +153,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	HookRunTrainEnt(LUA, 1);
 
 	//Create thread for simulation
-	std::thread thread(threadSimulation, userdata);
+	std::thread thread(&CWagon::SimulationThreadFn, userdata);
 	thread.detach();
 
 	return 0;
@@ -383,30 +353,6 @@ void HookRunTrainEnt(GM::ILuaBase* LUA, int entStackPos, bool remove)
 	LUA->Pop(2);
 }
 
-void CVarMainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
-{
-	ConVarRef ref(var);
-
-	if (!SetThreadGroup(g_MainThreadGroupAffinity, ref.GetString()))
-		return;
-
-	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Main thread running on CPU%d\n", CurrentCPU());
-	if (!SetAffinityMask(CurrentThread(), g_MainThreadGroupAffinity))
-	{
-		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Set main thread affinity mask failed!\n");
-	}
-	else
-	{
-		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to CPU%d\n", CurrentCPU());
-	};
-}
-
-void CVarTrainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
-{
-	ConVarRef ref(var);
-	SetThreadGroup(g_SimThreadGroupAffinity, ref.GetString());
-}
-
 void InstallHooks(GM::ILuaBase* LUA)
 {
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Installing hooks!\n");
@@ -418,23 +364,6 @@ void InstallHooks(GM::ILuaBase* LUA)
 				LUA->PushCFunction(Think_handler);
 			LUA->Call(3, 0);
 	LUA->Pop(2);
-}
-
-void ClearLoadCache(const CCommand &command)
-{
-	auto cacheSize = g_LoadedFilesCache.size();
-	if (g_LoadedFilesCache.empty())
-		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: No files in cache. Nothing to clear.\n");
-	else
-	{
-		g_LoadedFilesCache.clear();
-		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cleared %d files in cache!\n", cacheSize);
-	}	
-}
-
-void ClearPrintQueue(const CCommand& command)
-{
-	g_SharedPrint.ClearPrintQueue();
 }
 
 //------------------------------------------------------------------------------

@@ -1,18 +1,83 @@
 #include "source_sdk.h"
+
+#include "gmsv_turbostroi.h"
 #include "filesystem_stl.h"
+#include "affinity.h"
+#include "shared_print.h"
+#include <dbg.h>
+#include <color.h>
 #include <utlbuffer.h>
 #include <GarrysMod/FactoryLoader.hpp>
 #include <game/server/iplayerinfo.h>
+#include <eiface.h>
+#include <filesystem.h>
 
+//------------------------------------------------------------------------------
 // Custom filesystem
+//------------------------------------------------------------------------------
 CFileSystem_STL g_FileSystem;
 
+//------------------------------------------------------------------------------
 // Console variables
+//------------------------------------------------------------------------------
 ConVar g_CVarDisableCache("turbostroi_disable_cache", "0", FCVAR_NONE, "Disable scripts cache for development");
 ConVar g_CVarMainCores("turbostroi_main_cores", "0", FCVAR_NONE, "Set affinity mask for main thread", CVarMainCoresCallback);
 ConVar g_CVarTrainCores("turbostroi_train_cores", "0", FCVAR_NONE, "Set affinity mask for train threads", CVarTrainCoresCallback);
 ConCommand g_CmdClearCache("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems");
 ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Clear print queue");
+
+//------------------------------------------------------------------------------
+// "turbostroi_main_cores" callback
+//------------------------------------------------------------------------------
+void CVarMainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
+{
+	ConVarRef ref(var);
+
+	if (!SetThreadGroup(g_MainThreadGroupAffinity, ref.GetString()))
+		return;
+
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Main thread running on CPU%d\n", CurrentCPU());
+	if (!SetAffinityMask(CurrentThread(), g_MainThreadGroupAffinity))
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Set main thread affinity mask failed!\n");
+	}
+	else
+	{
+		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to CPU%d\n", CurrentCPU());
+	};
+}
+
+//------------------------------------------------------------------------------
+// "turbostroi_train_cores" callback
+//------------------------------------------------------------------------------
+void CVarTrainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue)
+{
+	ConVarRef ref(var);
+	SetThreadGroup(g_SimThreadGroupAffinity, ref.GetString());
+}
+
+//------------------------------------------------------------------------------
+// "turbostroi_clear_cache" callback
+//------------------------------------------------------------------------------
+void ClearLoadCache(const CCommand& command)
+{
+	auto cacheSize = g_LoadedFilesCache.size();
+	if (g_LoadedFilesCache.empty())
+		ConColorMsg(Color(255, 255, 0, 255), "Turbostroi: No files in cache. Nothing to clear.\n");
+	else
+	{
+		g_LoadedFilesCache.clear();
+		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Cleared %d files in cache!\n", cacheSize);
+	}
+}
+
+//------------------------------------------------------------------------------
+// "turbostroi_clear_print" callback
+//------------------------------------------------------------------------------
+void ClearPrintQueue(const CCommand& command)
+{
+	g_SharedPrint.ClearPrintQueue();
+}
 
 CGlobalVars* g_pServerGlobalVars = nullptr;
 bool GetGlobalVars()
@@ -29,8 +94,6 @@ bool GetGlobalVars()
 	g_pServerGlobalVars = pIPlayerInfoManager->GetGlobalVars();
 	return (g_pServerGlobalVars != nullptr);
 }
-
-
 
 KeyValues* g_pKVTurbostroi = nullptr;
 void SaveSettings()

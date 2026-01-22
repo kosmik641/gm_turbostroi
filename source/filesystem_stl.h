@@ -3,7 +3,6 @@
 // Done because of Linux's filesystem_stdio.so don't working o
 //------------------------------------------------------------------------------
 #include <filesystem.h>
-#include <tier1.h>
 
 class CFileSystem_STL : public CFileSystemPassThru
 {

@@ -1,8 +1,10 @@
 #pragma once
 #include "ring_buffer.h"
 #include "mutex.h"
-#include "lua.hpp"
 #include <string>
+
+struct lua_State;
+class CCommand;
 
 class SharedPrint
 {

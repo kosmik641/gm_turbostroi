@@ -1,8 +1,11 @@
 #include "wagon.h"
+
+#include "gmsv_turbostroi.h"
+#include "affinity.h"
 #include "shared_print.h"
-#include "version.h"
 #include <cstring>
 #include <thread>
+#include <lua.hpp>
 extern "C"
 {
 #include "lj_obj.h"
@@ -10,8 +13,6 @@ extern "C"
 
 #define LOCAL_L lua_State* L = m_Lua.L
 #define LOCAL_SELF CWagon* self = static_cast<TLuaData*>(G(L)->allocd)->self
-
-extern SharedPrint g_SharedPrint;
 
 // Wrapper to LuaJIT allocator
 static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
@@ -209,11 +210,24 @@ void CWagon::AddLoadSystem(TTrainSystem& sys)
 	lua_pop(L, 2);
 }
 
-extern bool g_ForceThreadsFinished;
-extern unsigned int g_ThreadTickrate;
-extern std::atomic<float> g_CurrentTime;
+//------------------------------------------------------------------------------
+// Simulation thread
+//------------------------------------------------------------------------------
 void CWagon::SimulationThreadFn()
 {
+	if (SetAffinityMask(CurrentThread(), g_SimThreadGroupAffinity))
+	{
+		std::string str = "[!] Train thread running on CPU";
+		str += std::to_string(CurrentCPU());
+		str += "\n";
+
+		g_SharedPrint.Push(str);
+	}
+	else
+	{
+		g_SharedPrint.Push("Turbostroi: Failed to set affinity mask of train thread!\n");
+	}
+
 	// Run initialize
 	Initialize();
 
@@ -232,6 +246,10 @@ void CWagon::SimulationThreadFn()
 
 		std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
 	}
+
+	//Release resources
+	g_SharedPrint.Push("[!] Terminating train thread\n");
+	delete this;
 }
 
 void CWagon::Initialize()
