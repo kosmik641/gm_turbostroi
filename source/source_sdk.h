@@ -1,9 +1,6 @@
 #pragma once
-#include <eiface.h>
+#include <iconvar.h>
 
-bool GetGlobalVars();
-bool RegisterConCommands();
-void SaveSettings();
 bool InitSourceSDK();
 void ShutdownSourceSDK();
 

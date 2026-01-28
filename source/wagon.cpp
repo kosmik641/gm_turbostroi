@@ -37,6 +37,10 @@ CWagon::CWagon()
 	lua_pushboolean(L, true);
 	lua_setglobal(L, "TURBOSTROI");
 
+	// LIB_TURBOSTROI_FILENAME = g_LibraryFileName
+	lua_pushstring(L, g_LibraryFileName.c_str());
+	lua_setglobal(L, "LIB_TURBOSTROI_FILENAME");
+
 	// print()
 	lua_pushcfunction(L, &SharedPrint::PrintL);
 	lua_setglobal(L, "print");
@@ -144,10 +148,10 @@ int CWagon::ThreadReadAvailable()
 	return m_Sim2Thread.size();
 }
 
-bool CWagon::LoadBuffer(const char* buf, const char* filename)
+bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)
 {
 	LOCAL_L;
-	if (luaL_loadbuffer(L, buf, strlen(buf), filename)
+	if (luaL_loadbuffer(L, buf, size, filename)
 		|| lua_pcall(L, 0, LUA_MULTRET, 0))
 	{
 		std::string err = lua_tostring(L, -1);

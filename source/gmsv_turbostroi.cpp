@@ -4,7 +4,13 @@
 #include <vector>
 #include <queue>
 #include <GarrysMod/Lua/Interface.h>
+#include <convar.h>
+#include <basehandle.h>
+#include <globalvars_base.h>
+#include <dbg.h>
+#include <color.h>
 #include "affinity.h"
+#include "filesystem_gmod.h"
 #include "source_sdk.h"
 #include "shared_print.h"
 #include "wagon.h"
@@ -16,6 +22,7 @@ namespace GM = GarrysMod::Lua;
 //------------------------------------------------------------------------------
 // Global variables
 //------------------------------------------------------------------------------
+std::string g_LibraryFileName;
 bool g_ForceThreadsFinished = false; // For correct unrequire module
 std::atomic<float> g_CurrentTime = 0.0f;
 unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
@@ -28,7 +35,7 @@ std::unordered_map<std::string, std::string> g_LoadedFilesCache;
 //------------------------------------------------------------------------------
 extern ICvar* cvar;
 extern ICvar* g_pCVar;
-extern CGlobalVars* g_pServerGlobalVars;
+extern CGlobalVarsBase* g_pServerGlobalVars;
 extern ConVar g_CVarDisableCache;
 
 //------------------------------------------------------------------------------
@@ -39,54 +46,43 @@ void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
 //------------------------------------------------------------------------------
-bool loadLua(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
+bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 {
 	// Get file from cache
 	bool useCache = !g_CVarDisableCache.GetBool();
 	if (useCache)
 	{
-		auto cache_item = g_LoadedFilesCache.find(filename);
+		const auto& cache_item = g_LoadedFilesCache.find(filename);
 		if (cache_item != g_LoadedFilesCache.end())
 		{
-			return userdata->LoadBuffer(cache_item->second.c_str(), filename);
+			const std::string& data = cache_item->second;
+			return userdata->LoadBuffer(data.c_str(), data.size(), filename);
 		}
 	}
 
 	// Read file
-	const char* file_data = nullptr;
-	LUA->GetField(-1, "Read");
-		LUA->PushString(filename);
-		LUA->PushString("LUA");
-	LUA->Call(2, 1); //file.Read(filename, "LUA")
-	file_data = LUA->GetString(-1);
-	LUA->Pop();
-
-	// Load file to CWagon
-	if (file_data != nullptr)
-	{
-		bool loaded = userdata->LoadBuffer(file_data, filename);
-		if (useCache && loaded) g_LoadedFilesCache.emplace(filename, file_data);
-		return loaded;
-	}
-	else
+	const char* data = GMOD_FileRead(LUA, filename, "lsv"); // LUA server realm scripts = lsv
+	if (data == nullptr)
 	{
 		ConColorMsg(Color(255, 0, 127, 255), "Turbostroi: File not found! ('%s')\n", filename);
-		return true; // Ignore not founded file
+		return false;
 	}
+
+	// Load file to CWagon
+	bool loaded = userdata->LoadBuffer(data, strlen(data), filename);
+	if (useCache && loaded) g_LoadedFilesCache.emplace(filename, data);
+
+	return loaded;
 }
 
 int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 {	
-	if (LUA->GetType(iStackPos) != GM::Type::Entity)
+	if (!LUA->IsType(iStackPos, GM::Type::Entity))
 		return -1;
 
-	int entIndex = -1;
-	LUA->GetField(iStackPos, "EntIndex");
-		LUA->Push(iStackPos); // WagonEnt
-			LUA->Call(1, 1); // Entity.EntIndex()
-			entIndex = LUA->GetNumber(-1);
-		LUA->Pop(); // Result
-	return entIndex;
+	auto* ud = reinterpret_cast<GM::ILuaBase::UserData*>(LUA->GetUserdata(iStackPos));
+	CBaseHandle eh(*reinterpret_cast<unsigned int*>(ud->data));
+	return eh.GetEntryIndex();
 }
 
 LUA_FUNCTION( API_InitializeTrain ) 
@@ -105,18 +101,11 @@ LUA_FUNCTION( API_InitializeTrain )
 	// If cache disabled, clear it
 	if (g_CVarDisableCache.GetBool())
 		g_LoadedFilesCache.clear();
-	
-	// Push GLOB, file on top
-	LUA->PushSpecial(GM::SPECIAL_GLOB);
-	LUA->GetField(-1, "file");
 
 	// Load neccessary files
-	if (!loadLua(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua") || !userdata->CheckLibLoaded())
+	if (!LoadSystem(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua") || !userdata->CheckLibLoaded())
 	{
 		ConColorMsg(Color(255, 0, 255, 255), "[!] Fail to load lib_turbostroi_v2.lua\n");
-
-		// Pop GLOB, file
-		LUA->Pop(2);
 
 		// Train.DontAccelerateSimulation = true
 		LUA->PushBool(true);
@@ -133,14 +122,11 @@ LUA_FUNCTION( API_InitializeTrain )
 	}
 
 	// Load up all the systems
-	loadLua(LUA, userdata, "metrostroi/sh_failsim.lua");
+	LoadSystem(LUA, userdata, "metrostroi/sh_failsim.lua");
 	for (TTrainSystem sys : g_MetrostroiSystemList)
 	{
-		loadLua(LUA, userdata, sys.file_name.c_str());
+		LoadSystem(LUA, userdata, sys.file_name.c_str());
 	}
-
-	// Pop GLOB, file
-	LUA->Pop(2);
 
 	// Initialize all the systems reported by the train
 	while (!g_LoadSystemList.empty())
@@ -162,8 +148,10 @@ LUA_FUNCTION( API_InitializeTrain )
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
 	LUA->GetField(1,"_CWagon");
+	{
 		CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
 		if (userdata) userdata->Finish();
+	}
 	LUA->Pop();
 
 	LUA->PushNil();
@@ -214,10 +202,9 @@ LUA_FUNCTION( API_TriggerInput )
 	const char* name = LUA->GetString(3);
 	double value;
 
-	int valueT = LUA->GetType(4);
-	if (valueT == GM::Type::Number)
+	if (LUA->IsType(4, GM::Type::Number))
 		value = LUA->GetNumber(4);
-	else if (valueT == GM::Type::Bool)
+	else if (LUA->IsType(4, GM::Type::Bool))
 		value = LUA->GetBool(4);
 	else
 		value = 0;
@@ -336,6 +323,7 @@ void HookRunTrainEnt(GM::ILuaBase* LUA, int entStackPos, bool remove)
 	if (LUA == nullptr)
 		return;
 
+	int top = LUA->Top();
 	LUA->PushSpecial(GM::SPECIAL_GLOB);
 	{
 		LUA->GetField(-1, "hook");
@@ -350,20 +338,32 @@ void HookRunTrainEnt(GM::ILuaBase* LUA, int entStackPos, bool remove)
 			}
 		}
 	}
-	LUA->Pop(2);
+
+	LUA->Pop(LUA->Top() - top);
 }
 
 void InstallHooks(GM::ILuaBase* LUA)
 {
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Installing hooks!\n");
+
+	int top = LUA->Top();
 	LUA->PushSpecial(GM::SPECIAL_GLOB);
+	{
 		LUA->GetField(-1, "hook");
+		if (LUA->IsType(-1, GM::Type::Table))
+		{
 			LUA->GetField(-1, "Add");
+			if (LUA->IsType(-1, GM::Type::Function))
+			{
 				LUA->PushString("Think");
 				LUA->PushString("Turbostroi_TargetTimeSync");
 				LUA->PushCFunction(Think_handler);
-			LUA->Call(3, 0);
-	LUA->Pop(2);
+				LUA->Call(3, 0);
+			}
+		}
+	}
+		
+	LUA->Pop(LUA->Top() - top);
 }
 
 //------------------------------------------------------------------------------
@@ -371,12 +371,16 @@ void InstallHooks(GM::ILuaBase* LUA)
 //------------------------------------------------------------------------------
 GMOD_MODULE_OPEN()
 {
+	g_LibraryFileName = LUA->GetString(1);
+	LUA->Pop(1); // Library filename
+	
 	if (!InitSourceSDK())
 		return 0;
 
-	//Check whether being ran on server
 	LUA->PushSpecial(GM::SPECIAL_GLOB);
-		LUA->GetField(-1,"SERVER");
+	{
+		// Check whether being ran on server
+		LUA->GetField(-1, "SERVER");
 		if (LUA->IsType(-1, GM::Type::Nil))
 		{
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (gm_turbostroi.dll can only be used on server)\n");
@@ -384,19 +388,20 @@ GMOD_MODULE_OPEN()
 		}
 		LUA->Pop(); //SERVER
 
-		//Check for global table
-		LUA->GetField(-1,"Metrostroi");
+		// Check for global table
+		LUA->GetField(-1, "Metrostroi");
 		if (LUA->IsType(-1, GM::Type::Nil))
 		{
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: DLL failed to initialize (cannot be used standalone without metrostroi addon)\n");
 			return 0;
 		}
 		LUA->Pop(); //Metrostroi
-		
+
 		InstallHooks(LUA);
 
 		//Initialize API
 		LUA->CreateTable();
+		{
 			PushCFunc(API_InitializeTrain, "InitializeTrain");
 			PushCFunc(API_DeinitializeTrain, "DeinitializeTrain");
 			PushCFunc(API_StartRailNetwork, "StartRailNetwork");
@@ -413,15 +418,20 @@ GMOD_MODULE_OPEN()
 			PushCFunc(API_SetSimulationFPS, "SetSimulationFPS");
 			PushCFunc(API_SetMTAffinityMask, "SetMTAffinityMask");
 			PushCFunc(API_SetSTAffinityMask, "SetSTAffinityMask");
-		LUA->SetField(-2,"Turbostroi");
+		}
+		LUA->SetField(-2, "Turbostroi");
 
+		// Include to GMod side
 		LUA->GetField(-1, "include");
+		if (LUA->IsType(-1, GM::Type::Function))
+		{
 			LUA->PushString("metrostroi/lib_turbostroi_v2.lua");
 			LUA->Call(1, 0);
+		}
+	}
+	LUA->Pop(); // GM::SPECIAL_GLOB
 
-	LUA->Pop();
-
-	//Print some information
+	// Print some information
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: [" TURBOSTROI_VERSION "] DLL initialized (built " __DATE__ ")\n");
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", g_ProcessorCount);
 

@@ -231,20 +231,7 @@ Metrostroi.CtorSystems = {}
 --------------------------------------------------------------------------------
 -- Load FFI
 --------------------------------------------------------------------------------
-local OSes = {
-    Windows     = {x86 = "win32",x64 = "win64"},
-    Linux       = {x86 = "linux",x64 = "linux64"},
-    BSD         = {x86 = "linux",x64 = "linux64"},
-    POSIX       = {x86 = "linux",x64 = "linux64"},
-    OSX         = {x86 = "osx",  x64 = "osx"},
-    Other       = {x86 = "linux",x64 = "linux64"}
-}
-
-local postfix = OSes[jit.os] and OSes[jit.os][jit.arch]
-if postfix == nil then
-    print("Can't find gm_turbostroi DLL")
-    return
-end
+if not LIB_TURBOSTROI_FILENAME then return end
 
 local ffi = require("ffi")
 ffi.cdef[[
@@ -260,7 +247,7 @@ TThreadMsg& ThreadRecvMessage(void* p);
 bool ThreadSendMessage(void *p, int message, const char* system_name, const char* name, double index, double value);
 ]]
 
-local TS = ffi.load("./garrysmod/lua/bin/gmsv_turbostroi_"..postfix..".dll")
+local TS = ffi.load(LIB_TURBOSTROI_FILENAME)
 print("[!] Train initialized!")
 
 local tsReadAvailable = TS.ThreadReadAvailable
@@ -515,4 +502,4 @@ function Metrostroi.DefineSystem(name)
     end
 end
 
-LIB_TURBOSTROI_VERSION = "v2.7.0"
+LIB_TURBOSTROI_VERSION = "v2.7.1"

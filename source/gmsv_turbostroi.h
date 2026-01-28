@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include "version.h"
 
+extern std::string g_LibraryFileName;
 extern bool g_ForceThreadsFinished;
 extern std::atomic<float> g_CurrentTime;
 extern unsigned int g_ThreadTickrate;

@@ -55,7 +55,7 @@ public:
 	TThreadMsg& ThreadRecvMessage();
 	int ThreadReadAvailable();
 
-	bool LoadBuffer(const char* buf, const char* filename);
+	bool LoadBuffer(const char* buf, size_t size, const char* filename);
 	bool CheckLibLoaded();
 	void AddLoadSystem(TTrainSystem& sys);
 

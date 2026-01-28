@@ -16,11 +16,11 @@ int CFileSystem_STL::Write(void const* pInput, int size, FileHandle_t file)
 {
     if (file == nullptr) return 0;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
     if (!f->good())
         return 0;
 
-    f->write(static_cast<const char*>(pInput), size);
+    f->write(reinterpret_cast<const char*>(pInput), size);
 
     return f->good() ? size : 0;
 }
@@ -76,7 +76,7 @@ void CFileSystem_STL::Close(FileHandle_t file)
 {
     if (file == nullptr) return;
 
-    std::fstream *f = static_cast<std::fstream*>(file);
+    std::fstream *f = reinterpret_cast<std::fstream*>(file);
     f->close();
     delete f;
     f = nullptr;
@@ -86,7 +86,7 @@ void CFileSystem_STL::Seek(FileHandle_t file, long long pos, FileSystemSeek_t se
 {
     if (file == nullptr) return;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
 
     std::ios_base::seekdir seek;
     switch (seekType)
@@ -113,7 +113,7 @@ unsigned long long CFileSystem_STL::Tell(FileHandle_t file)
 {
     if (file == nullptr) return 0;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
     if (!f->good())
         return 0;
 
@@ -124,7 +124,7 @@ unsigned long long CFileSystem_STL::Size(FileHandle_t file)
 {
     if (file == nullptr) return 0;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
     if (!f->good())
         return 0;
 
@@ -149,7 +149,7 @@ void CFileSystem_STL::Flush(FileHandle_t file)
 {
     if (file == nullptr) return;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
     if (!f->good())
         return;
 
@@ -244,12 +244,12 @@ int CFileSystem_STL::ReadEx(void* pOutput, int sizeDest, int size, FileHandle_t 
     if (size < 0 || sizeDest < 0)
         return 0;
 
-    std::fstream* f = static_cast<std::fstream*>(file);
+    std::fstream* f = reinterpret_cast<std::fstream*>(file);
     if (!f->good())
         return 0;
 
     int sizeToRead = std::min(sizeDest, size);
-    f->read(static_cast<char*>(pOutput), sizeToRead);
+    f->read(reinterpret_cast<char*>(pOutput), sizeToRead);
 
     return f->good() ? sizeToRead : 0;
 }
