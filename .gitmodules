@@ -10,3 +10,7 @@
 [submodule "external/boost/multiprecision"]
 	path = external/boost/multiprecision
 	url = https://github.com/boostorg/multiprecision.git
+[submodule "external/json"]
+	path = external/json
+	url = https://github.com/nlohmann/json.git
+	branch = master
