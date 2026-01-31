@@ -6,6 +6,7 @@
 #include <cstring>
 #include <thread>
 #include <lua.hpp>
+#include <const.h>
 extern "C"
 {
 #include "lj_obj.h"
@@ -341,20 +342,25 @@ int CWagon::SysTime(lua_State* L)
 	return 1;
 }
 
-void CWagon::SetEntIndex(int idx)
+void CWagon::SetEntHandle(unsigned long h)
 {
-	m_EntIndex = idx;
+	m_EntHandle = h;
+}
+
+unsigned long CWagon::EntHandle()
+{
+	return m_EntHandle;
 }
 
 int CWagon::EntIndex()
 {
-	return m_EntIndex;
+	return (m_EntHandle & ENT_ENTRY_MASK);
 }
 
 int CWagon::EntIndex(lua_State* L)
 {
 	LOCAL_SELF;
-	lua_pushnumber(L, self->m_EntIndex);
+	lua_pushnumber(L, self->EntIndex());
 	return 1;
 }
 

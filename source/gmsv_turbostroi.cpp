@@ -14,6 +14,7 @@
 #include "source_sdk.h"
 #include "shared_print.h"
 #include "wagon.h"
+#include "railnetwork.h"
 
 namespace GM = GarrysMod::Lua;
 
@@ -75,16 +76,6 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 	return loaded;
 }
 
-int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
-{	
-	if (!LUA->IsType(iStackPos, GM::Type::Entity))
-		return -1;
-
-	auto* ud = reinterpret_cast<GM::ILuaBase::UserData*>(LUA->GetUserdata(iStackPos));
-	CBaseHandle eh(*reinterpret_cast<unsigned int*>(ud->data));
-	return eh.GetEntryIndex();
-}
-
 LUA_FUNCTION( API_InitializeTrain ) 
 {
 	CWagon* userdata = new CWagon();
@@ -96,7 +87,9 @@ LUA_FUNCTION( API_InitializeTrain )
 	LUA->SetField(1, "_CWagon");
 
 	// Store entity index of wagon
-	userdata->SetEntIndex(GetEntIndex(LUA, 1));
+	unsigned long hEnt = GMOD_GetEntHandle(LUA, 1);
+	userdata->SetEntHandle(hEnt);
+	g_RailNetwork.AddTrain(hEnt);
 
 	// If cache disabled, clear it
 	if (g_CVarDisableCache.GetBool())
@@ -315,6 +308,7 @@ LUA_FUNCTION_DECLARE( Think_handler )
 {
 	g_CurrentTime = g_pServerGlobalVars->curtime;
 	g_SharedPrint.PrintAvailable();
+	g_RailNetwork.Think();
 	return 0;
 }
 
@@ -374,9 +368,10 @@ GMOD_MODULE_OPEN()
 	g_LibraryFileName = LUA->GetString(1);
 	LUA->Pop(1); // Library filename
 	
-	if (!InitSourceSDK())
+	if (!InitSourceSDK(LUA))
 		return 0;
 
+	MathLib_Init();
 	LUA->PushSpecial(GM::SPECIAL_GLOB);
 	{
 		// Check whether being ran on server

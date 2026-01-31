@@ -6,6 +6,7 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 		IncludeSDKCommon()
 		IncludeSDKTier0()
 		IncludeSDKTier1()
+        IncludeSDKMathlib()
 
 		externalincludedirs("external/boost/config/include")
 		externalincludedirs("external/boost/multiprecision/include")

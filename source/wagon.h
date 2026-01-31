@@ -76,7 +76,9 @@ public:
 
 	static int SysTime(lua_State* L);
 
-	void SetEntIndex(int idx);
+	void SetEntHandle(unsigned long h);
+	unsigned long EntHandle();
+
 	int EntIndex();
 	static int EntIndex(lua_State* L);
 
@@ -92,7 +94,7 @@ private:
 	double m_DeltaTime = 0.0;
 	bool m_Finished = false;
 	int m_SystemCount = 0;
-	int m_EntIndex = -1;
+	unsigned long m_EntHandle = 0;
 
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;

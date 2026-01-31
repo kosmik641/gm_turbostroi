@@ -4,15 +4,19 @@
 #include "filesystem_stl.h"
 #include "affinity.h"
 #include "shared_print.h"
-#include <dbg.h>
-#include <color.h>
-#include <utlbuffer.h>
 #include <GarrysMod/FactoryLoader.hpp>
+#include <GarrysMod/Lua/Interface.h>
+#include <cbase.h>
+#include <utlbuffer.h>
 #include <edict.h>
 #include <globalvars_base.h>
 #include <convar.h>
 #include <keyvalues.h>
 #include <game/server/iplayerinfo.h>
+#include <dbg.h>
+#include <color.h>
+
+namespace GM = GarrysMod::Lua;
 
 //------------------------------------------------------------------------------
 // IFileSystem interface
@@ -82,6 +86,44 @@ void ClearPrintQueue(const CCommand& command)
 	g_SharedPrint.ClearPrintQueue();
 }
 
+//------------------------------------------------------------------------------
+// Engine interface
+//------------------------------------------------------------------------------
+IVEngineServer* g_pVEngineServer = nullptr;
+IVEngineServer* engine = nullptr;
+static bool GetVEngineServer()
+{
+	SourceSDK::FactoryLoader engine_loader("engine");
+	g_pVEngineServer = engine = engine_loader.GetInterface<IVEngineServer>(INTERFACEVERSION_VENGINESERVER);
+
+	if (g_pVEngineServer == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load VEngineServer Interface!\n");
+		return false;
+	}
+
+	return true;
+}
+
+//------------------------------------------------------------------------------
+// Server edicts list
+//------------------------------------------------------------------------------
+edict_t* g_pEdictList = nullptr; // Size = MAX_EDICTS;
+static bool GetEdictsList()
+{
+	g_pEdictList = g_pVEngineServer->PEntityOfEntIndex(0);
+	if (g_pEdictList == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to get edicts list!\n");
+		return false;
+	}
+
+	return true;
+}
+
+//------------------------------------------------------------------------------
+// Server global vars
+//------------------------------------------------------------------------------
 CGlobalVarsBase* g_pServerGlobalVars = nullptr;
 static bool GetGlobalVars()
 {
@@ -98,6 +140,9 @@ static bool GetGlobalVars()
 	return (g_pServerGlobalVars != nullptr);
 }
 
+//------------------------------------------------------------------------------
+// Turbostroi settings
+//------------------------------------------------------------------------------
 KeyValues* g_pKVTurbostroi = nullptr;
 static void SaveSettings(IFileSystem* filesystem)
 {
@@ -184,8 +229,17 @@ static void LoadConVariables(IFileSystem* filesystem)
 	g_CVarTrainCores.SetDefault("254");
 }
 
-bool InitSourceSDK()
+GM::ILuaBase* g_Lua = nullptr;
+bool InitSourceSDK(GM::ILuaBase* LUA)
 {
+	g_Lua = LUA;
+
+	if (!GetVEngineServer())
+		return false;
+
+	if (!GetEdictsList())
+		return false;
+
 	if (!GetGlobalVars())
 		return false;
 
@@ -215,5 +269,66 @@ void ShutdownSourceSDK()
 		g_pCVar->UnregisterConCommand(&g_CmdClearCache);
 		g_pCVar->UnregisterConCommand(&g_CmdClearPrint);
 		g_pCVar = nullptr;
+	}
+}
+
+CBaseEntity* UTIL_EntityByIndex(int entityIndex)
+{
+	if (engine == nullptr)
+		return nullptr;
+
+	CBaseEntity* entity = nullptr;
+
+	if (entityIndex > 0)
+	{
+		edict_t* edict = INDEXENT(entityIndex);
+		if (edict && !edict->IsFree())
+		{
+			entity = GetContainingEntity(edict);
+		}
+	}
+
+	return entity;
+}
+
+bool UTIL_IsValidEntity(CBaseEntity* pEnt)
+{
+	edict_t* pEdict = pEnt->edict();
+	if (!pEdict || pEdict->IsFree())
+		return false;
+	return true;
+}
+
+bool UTIL_IsValidEdict(edict_t& edict)
+{
+	if (edict.GetUnknown() == nullptr
+		|| edict.IsFree())
+		return false;
+
+	return true;
+}
+
+unsigned long GMOD_GetEntHandle(GM::ILuaBase* LUA, int iStackPos)
+{
+	if (!LUA->IsType(iStackPos, GM::Type::Entity))
+		return INVALID_EHANDLE_INDEX;
+
+	auto* ud = reinterpret_cast<GM::ILuaBase::UserData*>(LUA->GetUserdata(iStackPos));
+	CBaseHandle eh(*reinterpret_cast<unsigned int*>(ud->data));
+	return eh.ToInt();
+}
+
+void GMOD_PushEntityOnStack(GM::ILuaBase* LUA, int entityIndex)
+{
+	LUA->PushSpecial(GM::SPECIAL_GLOB);
+	{
+		LUA->GetField(-1, "Entity");
+		{
+			if (LUA->IsType(-1, GM::Type::Function))
+			{
+				LUA->PushNumber(entityIndex);
+				LUA->Call(1, 1);
+			}
+		}
 	}
 }
