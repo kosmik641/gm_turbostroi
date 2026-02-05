@@ -19,11 +19,20 @@
 - `turbostroi_main_cores` - Affinity mask for SRCDS
 - `turbostroi_train_cores` - Affinity mask for train threads
 
-# Install fix
+# Installation of `lib_turbostroi_v2.lua`
 Install `lib_turbostroi_v2.lua` from this repository. It's need to work with module.
 
 1. Create new folder in `garrysmod/addons` (for example `garrysmod/addons/new_turbostroi`)
 2. Place `lua` file to `lua/metrostroi` in your new folder *(you need to create subdirectories)*
+
+Full path should be something like this: `garrysmod/addons/new_turbostroi/lua/metrostroi/lib_turbostroi_v2.lua`.
+
+# Crash fix `[src/tcmalloc.cc] Attempt to free invalid pointer` (only for Linux)
+1. Remove `bin/libtcmalloc_minimal.so.4` from server folder
+2. Install `libtcmalloc-minimal4` from package tool
+```
+apt install libtcmalloc-minimal4:i386
+```
 
 # Manual for Windows MSVC compile:
 1. Install Visual Studio 2015 or newer
