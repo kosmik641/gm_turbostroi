@@ -1,16 +1,11 @@
 #include "railnetwork.h"
 
-//#include <shareddefs.h>
-//#include <mathlib/vmatrix.h>
-//#include <util.h>
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
 #include <nlohmann/json.hpp>
 #include <cbase.h>
 #include "source_sdk.h"
 #include "filesystem_gmod.h"
-
-#define LUA_PushTableV(_L,_K,_V) (_L)->_K; (_L)->_V; (_L)->SetTable(-3)
 
 namespace GM = GarrysMod::Lua;
 
@@ -428,7 +423,7 @@ void CRailNetwork::LoadTrack()
 
             pathNode.pos = nodePos;
             pathNode.x = trackPath.length;
-            
+
             trackPath.nodes.push_back(pathNode);
             AddSpatial(pathNode);
         }
@@ -488,7 +483,24 @@ void CRailNetwork::LoadTrack()
                 int i = 0;
                 for (TPath& path : g_RailNetwork.m_Paths)
                 {
-                    g_Lua->PushUserType(path.id, g_TLuaHandlePath);
+                    // Save path reference
+                    if (path.iRef == -1)
+                    {
+                        g_Lua->PushUserType(path.id, g_TLuaHandlePath);
+                        path.iRef = g_Lua->ReferenceCreate();
+                    }
+
+                    // Save nodes references
+                    for (TNode& node : path.nodes)
+                    {
+                        if (node.iRef != -1)
+                            continue;
+
+                        g_Lua->PushUserType(node.id, g_TLuaHandleNode);
+                        node.iRef = g_Lua->ReferenceCreate();
+                    }
+
+                    g_Lua->ReferencePush(path.iRef);
                     GM::p_lua_rawseti(g_Lua->GetState(), -2, ++i);
                 }
             }
@@ -598,10 +610,11 @@ int CRailNetwork::LUA_NearestNodes__call(lua_State* L) // (for generator)
         LUA->PushNil();
         return 1;
     }
-    auto& hNode = nodes[i++];
+    auto hNode = nodes[i++];
+    auto& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
 
     LUA->PushNumber(hNode.NodeID() + 1);
-    LUA->PushUserType(hNode, g_TLuaHandleNode);
+    LUA->ReferencePush(node.iRef);
     return 2;
 }
 
@@ -678,7 +691,7 @@ int CRailNetwork::GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA)
     }
 
     // Calculate
-    auto results = g_RailNetwork.GetPositionOnTrack(pos, ang, opt);
+    auto results = GetPositionOnTrack(pos, ang, opt);
 
     // Return to Lua
     LUA->CreateTable();
@@ -688,16 +701,19 @@ int CRailNetwork::GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA)
         {
             LUA->CreateTable();
             {
-                LUA->PushUserType(res.hNode1, g_TLuaHandleNode);
+                auto& node1 = m_Paths[res.hNode1.PathID()].nodes[res.hNode1.NodeID()];
+                LUA->ReferencePush(node1.iRef);
                 LUA->SetField(-2, "node1");
 
                 if (res.hNode2.IsValidNodeID())
                 {
-                    LUA->PushUserType(res.hNode2, g_TLuaHandleNode);
+                    auto& node2 = m_Paths[res.hNode1.PathID()].nodes[res.hNode1.NodeID()];
+                    LUA->ReferencePush(node2.iRef);
                     LUA->SetField(-2, "node2");
                 }
 
-                LUA->PushUserType(res.hPath, g_TLuaHandlePath);
+                auto& path = m_Paths[res.hNode1.PathID()];
+                LUA->ReferencePush(path.iRef);
                 LUA->SetField(-2, "path");
 
                 LUA->PushNumber(res.angle);
@@ -742,9 +758,11 @@ int CRailNetwork::GetTrackPosition(GarrysMod::Lua::ILuaBase* LUA)
     if (!res.hNode.IsValidNodeID())
         return 0;
 
+    auto& node = m_Paths[res.hNode.PathID()].nodes[res.hNode.NodeID()];
+
     LUA->PushVector(res.pos);
     LUA->PushVector(res.ang);
-    LUA->PushUserType(res.hNode, g_TLuaHandleNode);
+    LUA->ReferencePush(node.iRef);
     return 3;
 }
 
@@ -796,7 +814,7 @@ void CRailNetwork::PushPath(GarrysMod::Lua::ILuaBase* LUA)
     try
     {
         TPath& path = m_Paths.at(pathID);
-        LUA->PushUserType(path.id, g_TLuaHandlePath);
+        LUA->ReferencePush(path.iRef);
     }
     catch (std::out_of_range&)
     {
@@ -827,7 +845,7 @@ void CRailNetwork::PushNode(GarrysMod::Lua::ILuaBase* LUA)
     {
         auto& path = m_Paths.at(pathID);
         TNode& node = path.nodes.at(nodeID);
-        LUA->PushUserType(node.id, g_TLuaHandleNode);
+        LUA->ReferencePush(node.iRef);
     }
     catch (std::out_of_range&)
     {
@@ -920,27 +938,30 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
 
     if (strcmp(id, "next") == 0) // node.next
     {
-        auto& hNextNodeID = node.hNext;
-        if (!hNextNodeID.IsValidNodeID())
+        auto& hNextNode = node.hNext;
+        if (!hNextNode.IsValidNodeID())
             return 0;
 
-        LUA->PushUserType(hNextNodeID, g_TLuaHandleNode);
+        auto& nextNode = g_RailNetwork.m_Paths[hNextNode.PathID()].nodes[hNextNode.NodeID()];
+        LUA->ReferencePush(nextNode.iRef);
         return 1;
     }
 
     if (strcmp(id, "prev") == 0) // node.prev
     {
-        auto& hPrevNodeID = node.hPrev;
-        if (!hPrevNodeID.IsValidNodeID())
+        auto& hPrevNode = node.hPrev;
+        if (!hPrevNode.IsValidNodeID())
             return 0;
 
-        LUA->PushUserType(hPrevNodeID, g_TLuaHandleNode);
+        auto& prevNode = g_RailNetwork.m_Paths[hPrevNode.PathID()].nodes[hPrevNode.NodeID()];
+        LUA->ReferencePush(prevNode.iRef);
         return 1;
     }
 
     if (strcmp(id, "path") == 0) // node.path
     {
-        LUA->PushUserType(node.id.GetPathHandle(), g_TLuaHandlePath);
+        auto& path = g_RailNetwork.m_Paths[node.id.PathID()];
+        LUA->ReferencePush(path.iRef);
         return 1;
     }
 
@@ -961,7 +982,8 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
                 LUA->PushNumber(branch.x);
                 GM::p_lua_rawseti(LUA->GetState(), -2, 1);
 
-                LUA->PushUserType(branch.hNode, g_TLuaHandleNode);
+                auto& node = g_RailNetwork.m_Paths[branch.hNode.PathID()].nodes[branch.hNode.NodeID()];
+                LUA->ReferencePush(node.iRef);
                 GM::p_lua_rawseti(LUA->GetState(), -2, 2);
             }
             GM::p_lua_rawseti(LUA->GetState(), -2, i+1);
@@ -991,7 +1013,7 @@ int CRailNetwork::LUA_RNNode__eq(lua_State* L)
         return 1;
     }
 
-    LUA->PushBool(memcmp(hNode1, hNode2, sizeof(CTrackHandle)) == 0);
+    LUA->PushBool(hNode1 == hNode2);
     return 1;
 }
 
@@ -1000,15 +1022,18 @@ int CRailNetwork::LUA_RNNode__tostring(lua_State* L)
     GM::ILua* LUA = L->luabase;
     CTrackHandle hNode = LUA->GetUserdata(1);
     if (!hNode.IsValidNodeID())
-        return 0;
+    {
+        LUA->PushString("TrackNode [NULL]");
+        return 1;
+    }
 
     const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
 
     char buf[128]{};
-    sprintf_s(buf, sizeof(buf), "TrackNode [%d][%d][%.04f %.04f %.04f][L=%.04f m]",
+    sprintf_s(buf, sizeof(buf), "TrackNode [%d][%d][%.04f %.04f %.04f][L=%.04f m][p=0x%p]",
         node.id.PathID() + 1, node.id.NodeID() + 1,
         node.pos.x, node.pos.y, node.pos.z,
-        node.length);
+        node.length, LUA->GetUserdata(1));
 
     LUA->PushString(buf);
     return 1;
@@ -1021,15 +1046,15 @@ int CRailNetwork::LUA_RNPath__index(lua_State* L)
     if (!hPath.IsValidPathID())
         return 0;
 
-    const TPath& path = g_RailNetwork.m_Paths[hPath.PathID()];
+    TPath& path = g_RailNetwork.m_Paths[hPath.PathID()];
 
     if (LUA->IsType(2, GM::Type::Number))
     {
         int nodeIdx = LUA->GetNumber(2) - 1;
         try
         {
-            TNode& node = g_RailNetwork.m_Paths[path.id.PathID()].nodes.at(nodeIdx);
-            LUA->PushUserType(node.id, g_TLuaHandleNode);
+            TNode& node = path.nodes.at(nodeIdx);
+            LUA->ReferencePush(node.iRef);
         }
         catch (std::out_of_range&)
         {
@@ -1043,7 +1068,7 @@ int CRailNetwork::LUA_RNPath__index(lua_State* L)
         const char* id = LUA->GetString(2);
         if (strcmp(id, "id") == 0) // path.id
         {
-            LUA->PushNumber(path.id.PathID() + 1);
+            LUA->PushNumber(hPath.PathID() + 1);
             return 1;
         }
 
@@ -1075,7 +1100,7 @@ int CRailNetwork::LUA_RNPath__eq(lua_State* L)
     CTrackHandle hPath1 = LUA->GetUserdata(1);
     CTrackHandle hPath2 = LUA->GetUserdata(2);
     
-    LUA->PushBool(memcmp(hPath1, hPath2, sizeof(CTrackHandle)) == 0);
+    LUA->PushBool(hPath1 == hPath2);
     return 1;
 }
 
@@ -1103,11 +1128,30 @@ int CRailNetwork::LUA_RNPath__tostring(lua_State* L)
     const TPath& path = g_RailNetwork.m_Paths[hPath.PathID()];
 
     char buf[64]{};
-    sprintf_s(buf, sizeof(buf), "TrackPath [%d][L=%.04f m][%d nodes]",
-        path.id.PathID()+1, path.length, path.nodes.size());
+    sprintf_s(buf, sizeof(buf), "TrackPath [%d][L=%.04f m][%d nodes][p=0x%p]",
+        path.id.PathID()+1, path.length, path.nodes.size(), LUA->GetUserdata(1));
 
     LUA->PushString(buf);
     return 1;
+}
+
+// Clear Lua references
+CRailNetwork::TNode::~TNode()
+{
+    if (iRef != -1)
+    {
+        g_Lua->ReferenceFree(iRef);
+        iRef = -1;
+    }
+}
+
+CRailNetwork::TPath::~TPath()
+{
+    if (iRef != -1)
+    {
+        g_Lua->ReferenceFree(iRef);
+        iRef = -1;
+    }
 }
 
 // Singleton

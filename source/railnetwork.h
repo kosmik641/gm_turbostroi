@@ -49,7 +49,10 @@ public:
     operator void*() const { return reinterpret_cast<void*>(m_Value); }
 
     I2 operator +(const I2& v) const = delete;
-    I2 operator ==(const I2& v) const = delete;
+    bool operator ==(const CTrackHandle& other) const
+    {
+        return (m_Value == other.m_Value);
+    }
 private:
     union
     {
@@ -137,6 +140,7 @@ private:
 
     struct TNode
     {
+        ~TNode();
         CTrackHandle id{};
         CTrackHandle hNext{};
         CTrackHandle hPrev{};
@@ -167,13 +171,18 @@ private:
             branch = { node, brX };
             return true;
         }
+
+        int iRef = -1; // TODO: Using CLuaObject?
     };
 
     struct TPath
     {
+        ~TPath();
         CTrackHandle id{ CTrackHandle::INVALID_PATH_ID, CTrackHandle::ONLY_PATH_NODE_ID };
         float length = 0;
         std::vector<TNode> nodes;
+
+        int iRef = -1; // TODO: Using CLuaObject?
     };
 
 #pragma pack(push,1)
