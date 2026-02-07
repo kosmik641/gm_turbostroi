@@ -5,7 +5,7 @@
 #include "affinity.h"
 #include "shared_print.h"
 #include <GarrysMod/FactoryLoader.hpp>
-#include <GarrysMod/Lua/Interface.h>
+#include <GarrysMod/Lua/LuaInterface.h>
 #include <cbase.h>
 #include <utlbuffer.h>
 #include <edict.h>
@@ -15,6 +15,7 @@
 #include <game/server/iplayerinfo.h>
 #include <dbg.h>
 #include <color.h>
+#undef GetClassName
 
 namespace GM = GarrysMod::Lua;
 
@@ -124,7 +125,7 @@ static bool GetEdictsList()
 //------------------------------------------------------------------------------
 // Server global vars
 //------------------------------------------------------------------------------
-CGlobalVarsBase* g_pServerGlobalVars = nullptr;
+CGlobalVars* g_pServerGlobalVars = nullptr;
 static bool GetGlobalVars()
 {
 	SourceSDK::FactoryLoader server_loader("server");
@@ -230,9 +231,15 @@ static void LoadConVariables(IFileSystem* filesystem)
 }
 
 GM::ILuaBase* g_Lua = nullptr;
+namespace GarrysMod::Lua
+{
+	fn_lua_rawseti p_lua_rawseti = nullptr;
+}
 bool InitSourceSDK(GM::ILuaBase* LUA)
 {
 	g_Lua = LUA;
+	SourceSDK::ModuleLoader lua_shared_loader("lua_shared");
+	GM::p_lua_rawseti = (GM::fn_lua_rawseti)lua_shared_loader.GetSymbol("lua_rawseti");
 
 	if (!GetVEngineServer())
 		return false;
@@ -308,27 +315,203 @@ bool UTIL_IsValidEdict(edict_t& edict)
 	return true;
 }
 
+// https://github.com/garrynewman/bootil/blob/master/src/3rdParty/globber.cpp
+static bool globber(const char* wild, const char* string)
+{
+	const char* cp = 0, * mp = 0;
+
+	while ((*string) && (*wild != '*')) {
+		if ((*wild != *string) && (*wild != '?')) {
+			return false;
+		}
+		wild++;
+		string++;
+	}
+
+	while (*string) {
+		if (*wild == '*') {
+			if (!*++wild) {
+				return true;
+			}
+			mp = wild;
+			cp = string + 1;
+		}
+		else if ((*wild == *string) || (*wild == '?')) {
+			wild++;
+			string++;
+		}
+		else {
+			wild = mp;
+			string = cp++;
+		}
+	}
+
+	while (*wild == '*') {
+		wild++;
+	}
+	return !*wild;
+}
+
+CBaseEntity* UTIL_FindEntityByClassname(CBaseEntity* pStartEntity, const char* query)
+{
+	if (query == nullptr)
+		return nullptr;
+
+	int startIdx = pStartEntity ? pStartEntity->entindex() : 0;
+
+	for (int i = startIdx; i < MAX_EDICTS; i++)
+	{
+		edict_t& edict = g_pEdictList[i];
+		if (!UTIL_IsValidEdict(edict))
+			continue;
+
+		CBaseEntity* ent = edict.GetUnknown()->GetBaseEntity();
+		const char* pClassName = ent->GetClassname();
+		if (globber(query, pClassName))
+			return ent;
+	}
+	
+	return nullptr;
+}
+
 unsigned long GMOD_GetEntHandle(GM::ILuaBase* LUA, int iStackPos)
 {
 	if (!LUA->IsType(iStackPos, GM::Type::Entity))
 		return INVALID_EHANDLE_INDEX;
 
 	auto* ud = reinterpret_cast<GM::ILuaBase::UserData*>(LUA->GetUserdata(iStackPos));
-	CBaseHandle eh(*reinterpret_cast<unsigned int*>(ud->data));
+	CBaseHandle eh((ud && ud->data) ? *reinterpret_cast<unsigned int*>(ud->data) : INVALID_EHANDLE_INDEX);
 	return eh.ToInt();
 }
 
 void GMOD_PushEntityOnStack(GM::ILuaBase* LUA, int entityIndex)
 {
-	LUA->PushSpecial(GM::SPECIAL_GLOB);
+	static GM::CFunc Entity = nullptr;
+	if (Entity == nullptr)
 	{
-		LUA->GetField(-1, "Entity");
+		LUA->PushSpecial(GM::SPECIAL_GLOB);
 		{
+			LUA->GetField(-1, "Entity");
 			if (LUA->IsType(-1, GM::Type::Function))
 			{
-				LUA->PushNumber(entityIndex);
-				LUA->Call(1, 1);
+				Entity = LUA->GetCFunction();
 			}
+			LUA->Pop();
 		}
+		LUA->Pop();
+	}
+
+	if (Entity == nullptr)
+		return;
+
+	LUA->PushCFunction(Entity);
+	LUA->PushNumber(entityIndex);
+	LUA->Call(1, 1);
+}
+
+void GMOD_Include(GarrysMod::Lua::ILuaBase* LUA, const char* filename)
+{
+	static GM::CFunc include = nullptr;
+	if (include == nullptr)
+	{
+		LUA->PushSpecial(GM::SPECIAL_GLOB);
+		{
+			LUA->GetField(-1, "include");
+			if (LUA->IsType(-1, GM::Type::Function))
+			{
+				include = LUA->GetCFunction(-1);
+			}
+			LUA->Pop();
+		}
+		LUA->Pop();
+	}
+
+	if (include == nullptr)
+		return;
+
+	LUA->PushCFunction(include);
+	LUA->PushString(filename);
+	LUA->Call(1, 0);
+}
+
+CBaseEntity* GMOD_EntsCreate(GM::ILuaBase* LUA, const char* className)
+{
+	static GM::CFunc ents_Create = nullptr;
+	if (ents_Create == nullptr)
+	{
+		LUA->PushSpecial(GM::SPECIAL_GLOB);
+		{
+			LUA->GetField(-1, "ents");
+			if (LUA->IsType(-1, GM::Type::Table))
+			{
+				LUA->GetField(-1, "Create");
+				if (LUA->IsType(-1, GM::Type::Function))
+				{
+					ents_Create = LUA->GetCFunction(-1);
+				}
+				LUA->Pop();
+			}
+			LUA->Pop();
+		}
+		LUA->Pop();
+	}
+
+	if (ents_Create == nullptr)
+		return nullptr;
+
+	CBaseEntity* ent = nullptr;
+
+	LUA->PushCFunction(ents_Create);
+	LUA->PushString(className);
+	LUA->Call(1, 1);
+
+	if (LUA->IsType(-1, GM::Type::Entity))
+	{
+		CBaseHandle hEnt = GMOD_GetEntHandle(LUA, -1);
+		if (hEnt != INVALID_EHANDLE_INDEX)
+			ent = g_pEdictList[hEnt.GetEntryIndex()].GetIServerEntity()->GetBaseEntity();
+	}
+
+	return ent;
+}
+
+void GMOD_EntityRemove(GM::ILuaBase* LUA, int entityIndex)
+{
+	static GM::CFunc EntityRemove = nullptr;
+	if (EntityRemove == nullptr)
+	{
+		LUA->PushSpecial(GM::SPECIAL_GLOB);
+		{
+			LUA->GetField(-1, "Entity");
+			if (LUA->IsType(-1, GM::Type::Function))
+			{
+				// Get pointer to Entity.Remove from Entity(0)
+				LUA->PushNumber(0);
+				LUA->Call(1, 1);
+
+				LUA->GetField(-1, "Remove");
+				if (LUA->IsType(-1, GM::Type::Function))
+				{
+					EntityRemove = LUA->GetCFunction(-1);
+				}
+				LUA->Pop();
+			}
+			LUA->Pop();
+		}
+		LUA->Pop();
+	}
+
+	if (EntityRemove == nullptr)
+		return;
+
+	LUA->PushCFunction(EntityRemove);
+	GMOD_PushEntityOnStack(LUA, entityIndex);
+	if (LUA->PCall(1, 0, 0))
+	{
+		const char* err = LUA->GetString(-1);
+		ConColorMsg(Color(255, 0, 0, 255), "GMOD_EntityRemove(): %s\n", err);
+		LUA->Pop();
 	}
 }
+
+//UTIL_Find

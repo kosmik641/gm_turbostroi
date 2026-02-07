@@ -36,7 +36,6 @@ std::unordered_map<std::string, std::string> g_LoadedFilesCache;
 //------------------------------------------------------------------------------
 extern ICvar* cvar;
 extern ICvar* g_pCVar;
-extern CGlobalVarsBase* g_pServerGlobalVars;
 extern ConVar g_CVarDisableCache;
 
 //------------------------------------------------------------------------------
@@ -76,7 +75,7 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 	return loaded;
 }
 
-LUA_FUNCTION( API_InitializeTrain ) 
+LUA_FUNCTION( TS_API_InitializeTrain ) 
 {
 	CWagon* userdata = new CWagon();
 	if (userdata == nullptr)
@@ -138,8 +137,9 @@ LUA_FUNCTION( API_InitializeTrain )
 	return 0;
 }
 
-LUA_FUNCTION( API_DeinitializeTrain ) 
+LUA_FUNCTION( TS_API_DeinitializeTrain ) 
 {
+	g_RailNetwork.RemoveTrain(CBaseHandle(GMOD_GetEntHandle(LUA, 1)).GetEntryIndex());
 	LUA->GetField(1,"_CWagon");
 	{
 		CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
@@ -154,7 +154,7 @@ LUA_FUNCTION( API_DeinitializeTrain )
 	return 0;
 }
 
-LUA_FUNCTION( API_LoadSystem ) 
+LUA_FUNCTION( TS_API_LoadSystem ) 
 {
 	const char* basename = LUA->GetString(1);
 	const char* name = LUA->GetString(2);
@@ -165,7 +165,7 @@ LUA_FUNCTION( API_LoadSystem )
 	return 0;
 }
 
-LUA_FUNCTION( API_RegisterSystem ) 
+LUA_FUNCTION( TS_API_RegisterSystem ) 
 {
 	const char* name = LUA->GetString(1);
 	const char* filename = LUA->GetString(2);
@@ -177,11 +177,9 @@ LUA_FUNCTION( API_RegisterSystem )
 	return 0;
 }
 
-LUA_FUNCTION( API_TriggerInput )
+LUA_FUNCTION( TS_API_TriggerInput )
 {
-	if (!LUA->IsType(1, GM::Type::Entity) ||
-		!LUA->IsType(2, GM::Type::String) ||
-		!LUA->IsType(3, GM::Type::String))
+	if (!LUA->IsType(1, GM::Type::Entity))
 		return 0;
 
 	LUA->GetField(1, "_CWagon");
@@ -191,8 +189,8 @@ LUA_FUNCTION( API_TriggerInput )
 	if (userdata == nullptr)
 		return 0;
 
-	const char* system_name = LUA->GetString(2);
-	const char* name = LUA->GetString(3);
+	const char* system_name = LUA->CheckString(2);
+	const char* name = LUA->CheckString(3);
 	double value;
 
 	if (LUA->IsType(4, GM::Type::Number))
@@ -207,7 +205,7 @@ LUA_FUNCTION( API_TriggerInput )
 	return 0;
 }
 
-LUA_FUNCTION( API_SendMessage ) 
+LUA_FUNCTION( TS_API_SendMessage ) 
 {
 	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
@@ -217,17 +215,11 @@ LUA_FUNCTION( API_SendMessage )
 		return 1;
 	}
 
-	LUA->CheckType(2,GM::Type::Number);
-	LUA->CheckType(3,GM::Type::String);
-	LUA->CheckType(4,GM::Type::String);
-	LUA->CheckType(5,GM::Type::Number);
-	LUA->CheckType(6,GM::Type::Number);
-
-	int message = LUA->GetNumber(2);
-	const char* system_name = LUA->GetString(3);
-	const char* name = LUA->GetString(4);
-	double index = LUA->GetNumber(5);
-	double value = LUA->GetNumber(6);
+	int message = LUA->CheckNumber(2);
+	const char* system_name = LUA->CheckString(3);
+	const char* name = LUA->CheckString(4);
+	double index = LUA->CheckNumber(5);
+	double value = LUA->CheckNumber(6);
 
 	bool sended = userdata->SimSendMessage(message,
 		system_name,name,
@@ -237,13 +229,13 @@ LUA_FUNCTION( API_SendMessage )
 	return 1;
 }
 
-LUA_FUNCTION( API_RecvMessages ) 
+LUA_FUNCTION( TS_API_RecvMessages ) 
 {
 	// Not used
 	return 0;
 }
 
-LUA_FUNCTION( API_RecvMessage ) 
+LUA_FUNCTION( TS_API_RecvMessage ) 
 {
 	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
@@ -259,7 +251,7 @@ LUA_FUNCTION( API_RecvMessage )
 	return 5;
 }
 
-LUA_FUNCTION( API_ReadAvailable ) 
+LUA_FUNCTION( TS_API_ReadAvailable ) 
 {
 	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
 
@@ -271,10 +263,9 @@ LUA_FUNCTION( API_ReadAvailable )
 	return 1;
 }
 
-LUA_FUNCTION( API_SetSimulationFPS ) 
+LUA_FUNCTION( TS_API_SetSimulationFPS ) 
 {
-	LUA->CheckType(1, GM::Type::Number);
-	double FPS = LUA->GetNumber(1);
+	double FPS = LUA->CheckNumber(1);
 	if (FPS == 0)
 		return 0;
 
@@ -283,21 +274,147 @@ LUA_FUNCTION( API_SetSimulationFPS )
 	return 0;
 }
 
-LUA_FUNCTION( API_SetMTAffinityMask )
+LUA_FUNCTION( TS_API_SetMTAffinityMask )
 {
 	// Removed and saved for compability
 	return 0;
 }
 
-LUA_FUNCTION( API_SetSTAffinityMask ) 
+LUA_FUNCTION( TS_API_SetSTAffinityMask ) 
 {
 	// Removed and saved for compability
 	return 0;
 }
 
-LUA_FUNCTION( API_StartRailNetwork ) 
+LUA_FUNCTION( TS_API_StartRailNetwork )
 {
-	// Not implemented
+	// Removed and saved for compability
+	return 0;
+}
+
+//------------------------------------------------------------------------------
+// RailNetwork Lua API
+//------------------------------------------------------------------------------
+LUA_FUNCTION(RN_API_Initialize)
+{
+	g_RailNetwork.Initialize();
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetTrackEditorPaths)
+{
+	return g_RailNetwork.GetTrackEditorPaths(LUA);
+}
+
+LUA_FUNCTION(RN_API_NearestNodes)
+{
+	return g_RailNetwork.NearestNodes(LUA);
+}
+
+LUA_FUNCTION(RN_API_GetPositionOnTrack)
+{
+	return g_RailNetwork.GetPositionOnTrack(LUA);
+}
+
+LUA_FUNCTION(RN_API_GetTrackPosition)
+{
+	return g_RailNetwork.GetTrackPosition(LUA);
+}
+
+LUA_FUNCTION(RN_API_UpdateSignalNames)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_UpdateSignalEntities)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_PostSignalInitialize)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_UpdateSwitchEntities)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_AddARSSubSection)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_ScanTrack)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetSignalByName)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetSwitchByName)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetNextTrafficLight)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetARSJoint)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_GetTrackSwitches)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_IsTrackOccupied)
+{
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_PrintStatistics)
+{
+	g_RailNetwork.PrintStatistics();
+	return 0;
+}
+
+// lua_run print(RailNetwork.GetTrackPath(0))
+LUA_FUNCTION(RN_API_GetTrackPath)
+{
+	g_RailNetwork.PushPath(LUA);
+	return 1;
+}
+
+// lua_run print(RailNetwork.GetTrackNode(0,0))
+LUA_FUNCTION(RN_API_GetTrackNode)
+{
+	g_RailNetwork.PushNode(LUA);
+	return 1;
+}
+
+#include <cbase.h>
+LUA_FUNCTION(RN_API_Test)
+{
+	/*const char* className = LUA->CheckString(1);
+	LUA->Pop();
+
+	CBaseEntity* ent = GMOD_EntsCreate(LUA, className);
+	Msg("Test(): top=%d     ent=%p\n", LUA->Top(), ent);*/
+	
+	int idx = LUA->CheckNumber(1);
+	LUA->Pop();
+
+	GMOD_EntityRemove(LUA, idx);
+
 	return 0;
 }
 
@@ -394,35 +511,67 @@ GMOD_MODULE_OPEN()
 
 		InstallHooks(LUA);
 
-		//Initialize API
+		//Initialize Turbostroi API
 		LUA->CreateTable();
 		{
-			PushCFunc(API_InitializeTrain, "InitializeTrain");
-			PushCFunc(API_DeinitializeTrain, "DeinitializeTrain");
-			PushCFunc(API_StartRailNetwork, "StartRailNetwork");
+			PushCFunc(TS_API_InitializeTrain, "InitializeTrain");
+			PushCFunc(TS_API_DeinitializeTrain, "DeinitializeTrain");
+			PushCFunc(TS_API_StartRailNetwork, "StartRailNetwork");
 
-			PushCFunc(API_ReadAvailable, "ReadAvailable");
-			PushCFunc(API_SendMessage, "SendMessage");
-			PushCFunc(API_RecvMessages, "RecvMessages");
-			PushCFunc(API_RecvMessage, "RecvMessage");
+			PushCFunc(TS_API_ReadAvailable, "ReadAvailable");
+			PushCFunc(TS_API_SendMessage, "SendMessage");
+			PushCFunc(TS_API_RecvMessages, "RecvMessages");
+			PushCFunc(TS_API_RecvMessage, "RecvMessage");
 
-			PushCFunc(API_LoadSystem, "LoadSystem");
-			PushCFunc(API_RegisterSystem, "RegisterSystem");
-			PushCFunc(API_TriggerInput, "TriggerInput");
+			PushCFunc(TS_API_LoadSystem, "LoadSystem");
+			PushCFunc(TS_API_RegisterSystem, "RegisterSystem");
+			PushCFunc(TS_API_TriggerInput, "TriggerInput");
 
-			PushCFunc(API_SetSimulationFPS, "SetSimulationFPS");
-			PushCFunc(API_SetMTAffinityMask, "SetMTAffinityMask");
-			PushCFunc(API_SetSTAffinityMask, "SetSTAffinityMask");
+			PushCFunc(TS_API_SetSimulationFPS, "SetSimulationFPS");
+			PushCFunc(TS_API_SetMTAffinityMask, "SetMTAffinityMask");
+			PushCFunc(TS_API_SetSTAffinityMask, "SetSTAffinityMask");
 		}
 		LUA->SetField(-2, "Turbostroi");
+		GMOD_Include(LUA, "metrostroi/lib_turbostroi_v2.lua");
 
-		// Include to GMod side
-		LUA->GetField(-1, "include");
-		if (LUA->IsType(-1, GM::Type::Function))
+		// Initialize Railnetwork API
+		CRailNetwork::RegisterLuaUserData();
+		LUA->CreateTable();
 		{
-			LUA->PushString("metrostroi/lib_turbostroi_v2.lua");
-			LUA->Call(1, 0);
+			PushCFunc(RN_API_Initialize, "Initialize");
+			PushCFunc(RN_API_GetTrackEditorPaths, "GetTrackEditorPaths");
+
+			// Railnetwork API
+			PushCFunc(RN_API_NearestNodes, "NearestNodes");
+			PushCFunc(RN_API_GetPositionOnTrack, "GetPositionOnTrack");
+			PushCFunc(RN_API_GetTrackPosition, "GetTrackPosition");
+			//PushCFunc(RN_API_UpdateSignalNames, "UpdateSignalNames");
+			//PushCFunc(RN_API_UpdateSignalEntities, "UpdateSignalEntities");
+			//PushCFunc(RN_API_PostSignalInitialize, "PostSignalInitialize");
+			//PushCFunc(RN_API_UpdateSwitchEntities, "UpdateSwitchEntities");
+			//PushCFunc(RN_API_AddARSSubSection, "AddARSSubSection");
+			//PushCFunc(RN_API_ScanTrack, "ScanTrack");
+			//PushCFunc(RN_API_GetSignalByName, "GetSignalByName");
+			//PushCFunc(RN_API_GetSwitchByName, "GetSwitchByName");
+			//PushCFunc(RN_API_GetNextTrafficLight, "GetNextTrafficLight");
+			//PushCFunc(RN_API_GetARSJoint, "GetARSJoint");
+			//PushCFunc(RN_API_GetTrackSwitches, "GetTrackSwitches");
+			//PushCFunc(RN_API_IsTrackOccupied, "IsTrackOccupied");
+			//PushCFunc(RN_API_PredictTrainPositions, "PredictTrainPositions");
+			//PushCFunc(RN_API_UpdateTrainPositions, "UpdateTrainPositions");
+			//PushCFunc(RN_API_UpdateStations, "UpdateStations");
+			//PushCFunc(RN_API_GetTravelTime, "GetTravelTime");
+			//PushCFunc(RN_API_Load, "Load");
+			//PushCFunc(RN_API_Save, "Save");
+			PushCFunc(RN_API_PrintStatistics, "PrintStatistics");
+
+			// For debugging
+			PushCFunc(RN_API_GetTrackPath, "GetTrackPath");
+			PushCFunc(RN_API_GetTrackNode, "GetTrackNode");
+			PushCFunc(RN_API_Test, "Test");
 		}
+		LUA->SetField(-2, "RailNetwork");
+		GMOD_Include(LUA, "metrostroi/lib_railnetwork.lua");
 	}
 	LUA->Pop(); // GM::SPECIAL_GLOB
 
@@ -442,6 +591,7 @@ GMOD_MODULE_OPEN()
 GMOD_MODULE_CLOSE()
 {
 	g_ForceThreadsFinished = true;
+	g_RailNetwork.Stop();
 
 	ShutdownSourceSDK();
 
@@ -461,6 +611,9 @@ GMOD_MODULE_CLOSE()
 	
 	LUA->PushNil();
 	LUA->SetField(GM::INDEX_GLOBAL, "Turbostroi");
+
+	LUA->PushNil();
+	LUA->SetField(GM::INDEX_GLOBAL, "RailNetwork");
 
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: DLL unloaded.\n");
 	return 0;
