@@ -3,6 +3,7 @@
 #include "gmsv_turbostroi.h"
 #include "affinity.h"
 #include "shared_print.h"
+#include <const.h>
 #include <cstring>
 #include <thread>
 #include <lua.hpp>
@@ -14,6 +15,9 @@ extern "C"
 #define LOCAL_L lua_State* L = m_Lua.L
 #define LOCAL_SELF CWagon* self = static_cast<TLuaData*>(G(L)->allocd)->self
 
+// CWagon pointers
+static std::array<CWagon*, MAX_EDICTS> g_Wagons{};
+
 // Wrapper to LuaJIT allocator
 static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 {
@@ -21,9 +25,30 @@ static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 	return lj_alloc_f(d->msp, ptr, osize, nsize);
 }
 
-CWagon::CWagon()
+
+CWagon* CWagon::Create(int idx)
 {
-	m_StartTime = std::chrono::steady_clock::now(); 
+	if (idx > 0 && idx < g_Wagons.size())
+		return new CWagon(idx);
+
+	return nullptr;
+}
+
+CWagon* CWagon::CWagonByIndex(int idx)
+{
+	if (idx > 0 && idx < g_Wagons.size()) // 0 is World
+		return g_Wagons[idx];
+
+	return nullptr;
+}
+
+CWagon::CWagon(int idx)
+{
+	m_StartTime = std::chrono::steady_clock::now();
+
+	// Store entity index and pointer
+	m_EntIndex = idx;
+	AddToArray();
 
 	// Alloc lua environment
 	m_Lua.L = luaL_newstate();
@@ -78,6 +103,7 @@ CWagon::~CWagon()
 {
 	lua_close(m_Lua.L);
 	lj_alloc_destroy(m_Lua.msp);
+	RemoveFromArray();
 }
 
 bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -193,25 +219,26 @@ void CWagon::AddLoadSystem(TTrainSystem& sys)
 {
 	LOCAL_L;
 	lua_getglobal(L, "LoadSystems");
-	if (lua_type(L, -1) != LUA_TTABLE)
 	{
-		lua_pop(L, 1);
-		return;
-	}
+		if (lua_type(L, -1) != LUA_TTABLE)
+		{
+			lua_pop(L, 1);
+			lua_newtable(L);
+			lua_setglobal(L, "LoadSystems");
+			lua_getglobal(L, "LoadSystems");
+		}
 
 		lua_newtable(L);
-			lua_pushnumber(L, 1);
+		{
 			lua_pushstring(L, sys.file_name.c_str());
-		lua_settable(L, -3);
+			lua_rawseti(L, -2, 1);
 
-			lua_pushnumber(L, 2);
 			lua_pushstring(L, sys.base_name.c_str());
-		lua_settable(L, -3);
-
-			lua_pushnumber(L, ++m_SystemCount);
-			lua_pushvalue(L, -2);
-		lua_settable(L, -4); // [i] = {sys.file_name,sys.base_name}
-	lua_pop(L, 2);
+			lua_rawseti(L, -2, 2);
+		}
+		lua_rawseti(L, -2, ++m_SystemCount);
+	}
+	lua_settop(L, 0);
 }
 
 //------------------------------------------------------------------------------
@@ -231,6 +258,11 @@ void CWagon::SimulationThreadFn()
 	{
 		g_SharedPrint.Push("Turbostroi: Failed to set affinity mask of train thread!\n");
 	}
+
+	// Save Think() to registry
+	LOCAL_L;
+	lua_getglobal(L, "Think");
+	m_ThinkRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
 	// Run initialize
 	Initialize();
@@ -252,6 +284,7 @@ void CWagon::SimulationThreadFn()
 	}
 
 	//Release resources
+	lua_unref(L, m_ThinkRef);
 	g_SharedPrint.Push("[!] Terminating train thread\n");
 	delete this;
 }
@@ -272,7 +305,7 @@ void CWagon::Initialize()
 void CWagon::Think()
 {
 	LOCAL_L;
-	lua_getglobal(L, "Think");
+	lua_getref(L, m_ThinkRef);
 	lua_pushnumber(L, m_DeltaTime);
 	if (lua_pcall(L, 1, 0, 0))
 	{
@@ -360,12 +393,25 @@ int CWagon::EntIndex(lua_State* L)
 
 void CWagon::Finish()
 {
+	RemoveFromArray();
     m_Finished = true;
 }
 
 bool CWagon::IsFinished()
 {
 	return m_Finished;
+}
+
+void CWagon::AddToArray()
+{
+	if (m_EntIndex > 0 && m_EntIndex < g_Wagons.size())
+		g_Wagons[m_EntIndex] = this;
+}
+
+void CWagon::RemoveFromArray()
+{
+	if (m_EntIndex > 0 && m_EntIndex < g_Wagons.size())
+		g_Wagons[m_EntIndex] = nullptr;
 }
 
 //------------------------------------------------------------------------------

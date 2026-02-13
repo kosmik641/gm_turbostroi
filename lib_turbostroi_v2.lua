@@ -16,9 +16,9 @@ local processMsgTbl = {
     -----------------------------------
     -- OutputsList values
     -----------------------------------
-    [1] = function(train,system,name,index,value)
-        if train.Systems[system] then
-            train.Systems[system][name] = value
+    function(train,tbl,system,name,index,value)
+        if tbl.Systems[system] then
+            tbl.Systems[system][name] = value
             train:TriggerTurbostroiInput(system,name,value)
         end
     end,
@@ -26,32 +26,32 @@ local processMsgTbl = {
     -----------------------------------
     -- WriteTrainWires values
     -----------------------------------
-    [2] = function(train,system,name,index,value)
-        if not train.TrainWireWritersID[index] then train.TrainWireWritersID[index] = true end
-        train.TrainWireTurbostroi[index] = value
+    function(train,tbl,system,name,index,value)
+        if not tbl.TrainWireWritersID[index] then tbl.TrainWireWritersID[index] = true end
+        tbl.TrainWireTurbostroi[index] = value
         train:TriggerTurbostroiInput("TrainWire",index,value)
     end,
 
     -----------------------------------
     -- TriggerInput for non accelereted system
     -----------------------------------
-    [3] = function(train,system,name,index,value)
-        if train.Systems[system] then
-            train.Systems[system]:TriggerInput(name,value)
+    function(train,tbl,system,name,index,value)
+        if tbl.Systems[system] then
+            tbl.Systems[system]:TriggerInput(name,value)
         end
     end,
 
     -----------------------------------
     -- ENT:PlayOnce()
     -----------------------------------
-    [4] = function(train,system,name,index,value)
+    function(train,tbl,system,name,index,value)
         train:PlayOnce(system,name,index,value)
     end,
 
     -----------------------------------
     -- print() data from lua_runstring in Turbostroi environment
     -----------------------------------
-    [5] = function(train,system,name,index,value)
+    function(train,tbl,system,name,index,value)
         local ply = Player(index)
         if not IsValid(ply) then return end
         ply:PrintMessage(HUD_PRINTCONSOLE, "metrostroi_turbostroi_run:" )
@@ -62,25 +62,27 @@ local processMsgTbl = {
 --------------------------------------------------------------------------------
 -- Read from thread data
 --------------------------------------------------------------------------------
-local function tsReadData(train, ud)
-    local msg_count = tsReadAvailable(ud)
+local function tsReadData(train, tbl)
+    local msg_count = tsReadAvailable(train)
 
     for i=1,msg_count do
-        local id,system,name,index,value = tsRecvMessage(ud)
+        local id,system,name,index,value = tsRecvMessage(train)
 
-        processMsgTbl[id](train,system,name,index,value)
+        processMsgTbl[id](train,tbl,system,name,index,value)
     end
 end
 
 --------------------------------------------------------------------------------
 -- Write to thread data
 --------------------------------------------------------------------------------
-local function tsWriteData(train, ud)
+local function tsWriteData(train, tbl, n)
+    local wireOut = tbl[n]
+    local dataOut = tbl[n+1]
     -- Send wires
-    for i,v in pairs(train.TrainWires) do
-        if train._WireOut[i] ~= v then
-            if tsSendMessage(ud, 2, "", "", i, v) then
-                train._WireOut[i] = v
+    for i,v in pairs(tbl.TrainWires) do
+        if wireOut[i] ~= v then
+            if tsSendMessage(train, 2, "", "", i, v) then
+                wireOut[i] = v
             -- else
             --     print("Fail to send Wire item: "..i)
             end
@@ -88,13 +90,13 @@ local function tsWriteData(train, ud)
     end
 
     -- Send outputs
-    for sys_name,sys in pairs(train.Systems) do
+    for sys_name,sys in pairs(tbl.Systems) do
         if sys.OutputsList and sys.DontAccelerateSimulation then
             for _,name in ipairs(sys.OutputsList) do
-                if train._DataOut[sys_name][name] ~= sys[name] then
+                if dataOut[sys_name][name] ~= sys[name] then
                     local value = (sys[name]==true) and 1 or (sys[name]==false) and 0 or tonumber(sys[name]) or 0
-                    if tsSendMessage(ud, 1, sys_name, name, 0, value) then
-                        train._DataOut[sys_name][name] = sys[name]
+                    if tsSendMessage(train, 1, sys_name, name, 0, value) then
+                        dataOut[sys_name][name] = sys[name]
                     -- else
                     --     print("Fail to send OutputsList item: "..sys_name..name)
                     end
@@ -109,9 +111,12 @@ end
 --------------------------------------------------------------------------------
 local function tsWagonCreate(ent)
     if ent.DontAccelerateSimulation then return end
-
-    ent._DataOut = {}
-    ent._WireOut = {}
+    
+    -- Store caches in native array (for faster access)
+    local tbl = ent:GetTable()
+    local n = #tbl+1
+    tbl[n] = {}   -- n:   Wire cache
+    tbl[n+1] = {} -- n+1: Data cache
     
     for sys_name,sys in pairs(ent.Systems) do
         -- Remove empty list
@@ -119,21 +124,19 @@ local function tsWagonCreate(ent)
 
         -- Initialize data cache
         if sys.OutputsList then
-            ent._DataOut[sys_name] = {}
+            tbl[n+1][sys_name] = {}
             for i,k in ipairs(sys.OutputsList) do
-                ent._DataOut[sys_name][k] = 0
+                tbl[n+1][sys_name][k] = 0
             end
         end
     end
-
+    
     -- Add data exchange funcs
-    local ud
     local oldThink = ent.Think
     function ent.Think(self)
-        ud = self._CWagon
-        tsReadData(self,ud)
+        tsReadData(self,tbl)
         oldThink(self)
-        tsWriteData(self,ud)
+        tsWriteData(self,tbl,n)
         return true
     end
 
@@ -153,7 +156,6 @@ local function tsWagonRemove(ent)
     end
 end
 hook.Add("TurbostroiWagonRemove", "Turbostroi_Remove", tsWagonRemove)
-
 --------------------------------------------------------------------------------
 -- Replace sv_turbostroi_v2.lua things
 --------------------------------------------------------------------------------
@@ -311,7 +313,7 @@ local processMsgTbl = {
     -----------------------------------
     -- OutputsList values
     -----------------------------------
-    [1] = function(train,system,name,index,value)
+    function(train,system,name,index,value)
         if train.Systems[system] then
             train.Systems[system][name] = value
         -- else
@@ -322,14 +324,14 @@ local processMsgTbl = {
     -----------------------------------
     -- ReadTrainWires values
     -----------------------------------
-    [2] = function(train,system,name,index,value)
+    function(train,system,name,index,value)
         train._WiresR[index] = value
     end,
 
     -----------------------------------
     -- TriggerInput for accelereted system
     -----------------------------------
-    [3] = function(train,system,name,index,value)
+    function(train,system,name,index,value)
         if train.Systems[system] then
             train.Systems[system]:TriggerInput(name,value)
         -- else
@@ -340,12 +342,12 @@ local processMsgTbl = {
     -----------------------------------
     -- Not used
     -----------------------------------
-    [4] = function(train,system,name,index,value) end,
+    function(train,system,name,index,value) end,
 
     -----------------------------------
     -- lua_runstring in Turbostroi environment
     -----------------------------------
-    [5] = function(train,system,name,index,value)
+    function(train,system,name,index,value)
         tsRunString(system..name, index, value)
     end,
 }
@@ -502,4 +504,4 @@ function Metrostroi.DefineSystem(name)
     end
 end
 
-LIB_TURBOSTROI_VERSION = "v2.7.1"
+LIB_TURBOSTROI_VERSION = "v2.7.2"

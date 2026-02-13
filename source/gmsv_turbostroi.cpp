@@ -75,28 +75,32 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 	return loaded;
 }
 
-int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
+inline int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 {	
 	if (!LUA->IsType(iStackPos, GM::Type::Entity))
-		return -1;
+		return 0;
 
 	auto* ud = reinterpret_cast<GM::ILuaBase::UserData*>(LUA->GetUserdata(iStackPos));
-	CBaseHandle eh(*reinterpret_cast<unsigned int*>(ud->data));
+	CBaseHandle eh(ud ? *reinterpret_cast<unsigned int*>(ud->data) : 0);
 	return eh.GetEntryIndex();
 }
 
 LUA_FUNCTION( API_InitializeTrain ) 
 {
-	CWagon* userdata = new CWagon();
+	int idx = GetEntIndex(LUA, 1);
+	CWagon* userdata = CWagon::Create(idx);
 	if (userdata == nullptr)
+	{
+		if (idx > 0)
+		{
+			// Train.DontAccelerateSimulation = true
+			LUA->PushBool(true);
+			LUA->SetField(1, "DontAccelerateSimulation");
+		}
+
+		ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Fail to create CWagon!\n");
 		return 0;
-
-	// Train._CWagon = *CWagon
-	LUA->PushUserType(userdata, GM::Type::LightUserData);
-	LUA->SetField(1, "_CWagon");
-
-	// Store entity index of wagon
-	userdata->SetEntIndex(GetEntIndex(LUA, 1));
+	}
 
 	// If cache disabled, clear it
 	if (g_CVarDisableCache.GetBool())
@@ -111,9 +115,7 @@ LUA_FUNCTION( API_InitializeTrain )
 		LUA->PushBool(true);
 		LUA->SetField(1, "DontAccelerateSimulation");
 
-		// Train._CWagon = nil
-		LUA->PushNil();
-		LUA->SetField(1, "_CWagon");
+		// Destroy CWagon
 		delete userdata;
 
 		// Hook call
@@ -147,17 +149,13 @@ LUA_FUNCTION( API_InitializeTrain )
 
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
-	LUA->GetField(1,"_CWagon");
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (userdata)
 	{
-		CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
-		if (userdata) userdata->Finish();
+		HookRunTrainEnt(LUA, 1, true);
+		userdata->Finish();
 	}
-	LUA->Pop();
-
-	LUA->PushNil();
-	LUA->SetField(1,"_CWagon");
-
-	HookRunTrainEnt(LUA, 1, true);
+	
 	return 0;
 }
 
@@ -191,10 +189,7 @@ LUA_FUNCTION( API_TriggerInput )
 		!LUA->IsType(3, GM::Type::String))
 		return 0;
 
-	LUA->GetField(1, "_CWagon");
-	CWagon* userdata = LUA->GetUserType<CWagon>(-1, GM::Type::LightUserData);
-	LUA->Pop();
-
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 	if (userdata == nullptr)
 		return 0;
 
@@ -216,25 +211,18 @@ LUA_FUNCTION( API_TriggerInput )
 
 LUA_FUNCTION( API_SendMessage ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
-
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 	if (userdata == nullptr)
 	{
 		LUA->PushBool(false);
 		return 1;
 	}
 
-	LUA->CheckType(2,GM::Type::Number);
-	LUA->CheckType(3,GM::Type::String);
-	LUA->CheckType(4,GM::Type::String);
-	LUA->CheckType(5,GM::Type::Number);
-	LUA->CheckType(6,GM::Type::Number);
-
-	int message = LUA->GetNumber(2);
-	const char* system_name = LUA->GetString(3);
-	const char* name = LUA->GetString(4);
-	double index = LUA->GetNumber(5);
-	double value = LUA->GetNumber(6);
+	int message = LUA->CheckNumber(2);
+	const char* system_name = LUA->CheckString(3);
+	const char* name = LUA->CheckString(4);
+	double index = LUA->CheckNumber(5);
+	double value = LUA->CheckNumber(6);
 
 	bool sended = userdata->SimSendMessage(message,
 		system_name,name,
@@ -252,8 +240,7 @@ LUA_FUNCTION( API_RecvMessages )
 
 LUA_FUNCTION( API_RecvMessage ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
-
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 	if (userdata == nullptr)
 		return 0;
 
@@ -268,7 +255,7 @@ LUA_FUNCTION( API_RecvMessage )
 
 LUA_FUNCTION( API_ReadAvailable ) 
 {
-	CWagon* userdata = LUA->GetUserType<CWagon>(1, GM::Type::LightUserData);
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 
 	if (userdata != nullptr)
 		LUA->PushNumber(userdata->SimReadAvailable());
@@ -280,8 +267,7 @@ LUA_FUNCTION( API_ReadAvailable )
 
 LUA_FUNCTION( API_SetSimulationFPS ) 
 {
-	LUA->CheckType(1, GM::Type::Number);
-	double FPS = LUA->GetNumber(1);
+	double FPS = LUA->CheckNumber(1);
 	if (FPS == 0)
 		return 0;
 

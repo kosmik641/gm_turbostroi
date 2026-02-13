@@ -12,6 +12,6 @@
 #pragma warning Unknown dynamic link import/export semantics.
 #endif
 
-#define TURBOSTROI_VERSION "v2.7.1"
+#define TURBOSTROI_VERSION "v2.7.2"
 
 bool IsWindows11();

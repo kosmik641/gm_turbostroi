@@ -38,7 +38,8 @@ struct TLuaData
 
 class CWagon {
 public:
-	CWagon();
+	static CWagon* Create(int idx); // CWagon factory
+	static CWagon* CWagonByIndex(int idx);
 	~CWagon();
 
 	inline static TThreadMsg s_EmptyMsg{ 0 };
@@ -84,6 +85,8 @@ public:
 	bool IsFinished();
 
 private:
+	CWagon(int idx);
+
 	TLuaData m_Lua{ this };
 	std::chrono::steady_clock::time_point m_StartTime;
 	float m_ServerCurTime = -1.0f;
@@ -91,10 +94,14 @@ private:
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
 	bool m_Finished = false;
+	int m_ThinkRef = 0;
 	int m_SystemCount = 0;
 	int m_EntIndex = -1;
 
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
 	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
+
+	void AddToArray();
+	void RemoveFromArray();
 };
 
