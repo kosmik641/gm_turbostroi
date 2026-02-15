@@ -233,13 +233,13 @@ static void LoadConVariables(IFileSystem* filesystem)
 GM::ILuaBase* g_Lua = nullptr;
 namespace GarrysMod::Lua
 {
-	fn_lua_rawseti p_lua_rawseti = nullptr;
+	fn_lua_rawseti lua_rawseti = nullptr;
 }
 bool InitSourceSDK(GM::ILuaBase* LUA)
 {
 	g_Lua = LUA;
 	SourceSDK::ModuleLoader lua_shared_loader("lua_shared");
-	GM::p_lua_rawseti = (GM::fn_lua_rawseti)lua_shared_loader.GetSymbol("lua_rawseti");
+	GM::lua_rawseti = (GM::fn_lua_rawseti)lua_shared_loader.GetSymbol("lua_rawseti");
 
 	if (!GetVEngineServer())
 		return false;
@@ -300,16 +300,22 @@ CBaseEntity* UTIL_EntityByIndex(int entityIndex)
 
 bool UTIL_IsValidEntity(CBaseEntity* pEnt)
 {
+	if (pEnt == nullptr)
+		return false;
+
 	edict_t* pEdict = pEnt->edict();
 	if (!pEdict || pEdict->IsFree())
 		return false;
 	return true;
 }
 
-bool UTIL_IsValidEdict(edict_t& edict)
+bool UTIL_IsValidEdict(edict_t* edict)
 {
-	if (edict.GetUnknown() == nullptr
-		|| edict.IsFree())
+	if (edict == nullptr)
+		return false;
+
+	if (edict->GetUnknown() == nullptr
+		|| edict->IsFree())
 		return false;
 
 	return true;
@@ -362,7 +368,7 @@ CBaseEntity* UTIL_FindEntityByClassname(CBaseEntity* pStartEntity, const char* q
 	for (int i = startIdx; i < MAX_EDICTS; i++)
 	{
 		edict_t& edict = g_pEdictList[i];
-		if (!UTIL_IsValidEdict(edict))
+		if (!UTIL_IsValidEdict(&edict))
 			continue;
 
 		CBaseEntity* ent = edict.GetUnknown()->GetBaseEntity();

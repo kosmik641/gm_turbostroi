@@ -2,13 +2,13 @@
 
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
-#include <nlohmann/json.hpp>
 #include <cbase.h>
 #include "source_sdk.h"
 #include "filesystem_gmod.h"
 
-namespace GM = GarrysMod::Lua;
+#define EQ_2CHAR(var,c1,c2) ((var[0]) == c1 && (var[1]) == c2)
 
+namespace GM = GarrysMod::Lua;
 using js = nlohmann::json;
 
 static int g_TLuaHandleNode = 0; // Stores CTrackHandle
@@ -63,10 +63,11 @@ static js loadSignalData(const char* def)
     return js();
 }
 
-void CRailNetwork::Initialize()
+void CRailNetwork::Start()
 {
+    m_Initialized = true;
     LoadTrack();
-    PrintStatistics();
+    LoadSigns();
 }
 
 void CRailNetwork::Stop()
@@ -78,12 +79,23 @@ void CRailNetwork::Stop()
     {
         g_Lua->GetField(-1, "RailNetwork");
         {
-            g_Lua->CreateTable();
+            g_Lua->PushNil();
             g_Lua->SetField(-2, "Paths");
         }
         g_Lua->Pop();
     }
     g_Lua->Pop();
+
+    m_Paths.clear();
+    m_SpatialLookup.clear();
+    j_Signs.clear();
+    m_SignalsForNode.clear();
+
+    for (int i = 0; i < MAX_EDICTS; i++)
+    {
+        m_Trains[i].InvalidateTrain();
+        m_Signals[i].InvalidateSignal();
+    }
 }
 
 void CRailNetwork::Think()
@@ -96,7 +108,7 @@ void CRailNetwork::AddTrain(CBaseHandle handle)
     int entIdx = handle.GetEntryIndex();
     edict_t& edict = g_pEdictList[entIdx];
 
-    if (!UTIL_IsValidEdict(edict))
+    if (!UTIL_IsValidEdict(&edict))
     {
         ConColorMsg(Color(255, 255, 0, 255), "Railnetwork: Entity[%d] is not valid!\n", entIdx);
         return;
@@ -139,16 +151,42 @@ static inline const matrix3x4_t& entMatrix(CBaseEntity* ent)
 #endif
 }
 
-static inline void entWorldToLocal(CBaseEntity* ent, const Vector& wpos, Vector& out)
+static inline void localToWorld(const Vector& pos, const QAngle& ang, const Vector& lpos, Vector& out)
 {
-    if (entGetLocalAngles(ent) == vec3_angle)
+    if (ang == vec3_angle)
     {
-        VectorSubtract(wpos, entGetLocalOrigin(ent), out);
+        VectorAdd(lpos, pos, out);
     }
     else
     {
-        VectorITransform(wpos, entMatrix(ent), out);
+        matrix3x4_t mat;
+        AngleMatrix(ang, pos, mat);
+        VectorTransform(lpos, mat, out);
     }
+}
+
+static inline void worldToLocal(const Vector& pos, const QAngle& ang, const Vector& wpos, Vector& out)
+{
+    if (ang == vec3_angle)
+    {
+        VectorSubtract(wpos, pos, out);
+    }
+    else
+    {
+        matrix3x4_t mat;
+        AngleMatrix(ang, pos, mat);
+        VectorITransform(wpos, mat, out);
+    }
+}
+
+static inline void entLocalToWorld(CBaseEntity* ent, const Vector& lpos, Vector& out)
+{
+    localToWorld(entGetLocalOrigin(ent), entGetLocalAngles(ent), lpos, out);
+}
+
+static inline void entWorldToLocal(CBaseEntity* ent, const Vector& wpos, Vector& out)
+{
+    worldToLocal(entGetLocalOrigin(ent), entGetLocalAngles(ent), wpos, out);
 }
 
 std::vector<CTrackHandle> CRailNetwork::NearestNodes(const Vector& pos)
@@ -246,6 +284,152 @@ std::vector<CRailNetwork::TGetPosOnTrackRes> CRailNetwork::GetPositionOnTrack(co
     return out;
 }
 
+CRailNetwork::TGetTrackPosRes CRailNetwork::GetTrackPosition(int pathID, float x)
+{
+    try
+    {
+        TPath& path = m_Paths.at(pathID);
+        return GetTrackPosition(path, x);
+    }
+    catch (std::out_of_range&)
+    {
+        return TGetTrackPosRes();
+    }    
+}
+
+bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked, void* data)
+{
+    if (!hNode.IsValidNodeID())
+        return false;
+
+    bool mLight = (mode == M_Light);
+    bool mARS = (mode == M_ARS);
+    bool mSwitch = (mode == M_Switch);
+
+    // Check if this node was already scanned
+    if (pChecked == nullptr)
+    {
+        pChecked = new std::unordered_map<int, bool>;
+    }
+    std::unordered_map<int, bool>& checked = *pChecked;
+    if (checked[hNode]) return false;
+    checked[hNode] = true;
+
+    const TNode& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+
+    // Try to use entire node length by default
+    float min_x = node.x;
+    float max_x = min_x + node.length;
+
+    // Get range of node which can be actually sensed
+    bool isolateForward = false;    // Should scanning continue forward along track
+    bool isolateBackward = false;   // Should scanning continue backward along track
+
+    if (!m_SignalsForNode.empty())
+    {
+        const auto& nodeSignals = m_SignalsForNode[hNode];
+        for (const auto& sigItem : nodeSignals)
+        {
+            try
+            {
+                const TSignal& sig = m_Signals.at(sigItem.GetEntryIndex());
+                bool isolating = false;
+                switch (mode)
+                {
+                case M_Light:
+                {
+                    isolating = (
+                            (sig.trackDir == dir && !sig.routes[sig.route].repeater)
+                            || (sig.trackDir == dir && sig.routes[sig.route].repeater && sig.routeNumber == 9)
+                            || (sig.routeNumber > -1 && sig.routes[sig.route].repeater)
+                        )
+                        && (!sig.passOcc || sig.trackX == x);
+                }
+                    break;
+                case M_ARS:
+                    isolating = (sig.trackDir == dir) && (!sig.passOcc || sig.trackX == x);
+                    break;
+                case M_Switch:
+                    isolating = sig.isolateSwitches;
+                    break;
+                default:
+                    break;
+                }
+
+                if (isolating)
+                {
+                    // If scanning forward, and there's a joint IN FRONT of current X
+                    if (dir && sig.trackX > x)
+                    {
+                        max_x = std::min(max_x, sig.trackX);
+                        isolateForward = true;
+                    }
+
+                    // If scanning forward, and there's a joint in current X
+                    // This is triggered when traffic light searches for next light from its own X (then
+                    // scan direction is defined by dir)
+                    if (dir && sig.trackX == x)
+                    {
+                        min_x = std::max(min_x, sig.trackX);
+                        isolateBackward = true;
+                    }
+
+                    // If scanning backward, and there's a joint BEHIND current X
+                    if (!dir && sig.trackX < x)
+                    {
+                        min_x = std::max(min_x, sig.trackX);
+                        isolateBackward = true;
+                    }
+
+                    // If scanning backward starting from current X, use dir for guiding scan
+                    if (!dir && sig.trackX == x)
+                    {
+                        max_x = std::max(max_x, sig.trackX);
+                        isolateForward = true;
+                    }
+                }
+            }
+            catch (std::out_of_range& e) {}
+        }
+    }
+    // Call function for the determined portion of the node
+    bool results = func(hNode, min_x, max_x, data);
+    if (results)
+        return true;
+
+    // First check all the branches, whose positions fall within min_x..max_x
+    if (!node.branches.empty() && !mARS)
+    {
+        for (auto& branch : node.branches)
+        {
+            if (branch.x >= min_x && branch.x <= max_x)
+            {
+                results = ScanTrack(mode, branch.hNode, func, branch.x, true, pChecked, data);
+                if (results)
+                    return true;
+            }
+        }
+    }
+
+    // If not isolated, continue scanning forward from the front end of node
+    if ((dir || mSwitch) && (!isolateForward))
+    {
+        results = ScanTrack(mode, node.hNext, func, max_x, true, pChecked, data);
+        if (results)
+            return true;
+    }
+
+    // If not isolated, continue scanning backward from the rear end of node
+    if ((!dir || mSwitch) && (!isolateBackward))
+    {
+        results = ScanTrack(mode, node.hPrev, func, min_x, false, pChecked, data);
+        if (results)
+            return true;
+    }
+
+    return false;
+}
+
 void CRailNetwork::GetBogeys(TTrain& train)
 {
     train.iNeedFindBogeys = -1;
@@ -330,7 +514,7 @@ void CRailNetwork::UpdateTrains()
 {
     if (!m_Initialized) return;
 
-    for (size_t i = 1; i < m_Trains.size(); i++) // 0 is world
+    for (int i = 1; i < MAX_EDICTS; i++) // 0 is world
     {
         TTrain& train = m_Trains[i];
 
@@ -338,10 +522,10 @@ void CRailNetwork::UpdateTrains()
             continue;
 
         // Invalidate edicts
-        if (!UTIL_IsValidEdict(*train.edEntity))
+        if (!UTIL_IsValidEdict(train.edEntity))
         {
             //ConMsg("CRailNetwork::UpdateTrains(): Invalidate train [%d]!\n", i);
-            train.Invalidate();
+            train.InvalidateTrain();
             continue;
         }
 
@@ -364,7 +548,7 @@ void CRailNetwork::LoadTrack()
 
     if (j.empty())
     {
-        m_Initialized = false;
+        Stop();
         return;
     }
 
@@ -385,50 +569,59 @@ void CRailNetwork::LoadTrack()
     // Load paths
     for (size_t pathID = 0; pathID < j.size(); pathID++)
     {
-        const auto& jsonPath = j[pathID];
-        if (!jsonPath.is_array())
-            continue;
-
-        TPath trackPath{ CTrackHandle(pathID) };
-        for (size_t nodeID = 0; nodeID < jsonPath.size(); nodeID++)
+        try
         {
-            const auto& jsonNode = jsonPath[nodeID];
-            if (!jsonNode.is_string())
+            const auto& jsonPath = j[pathID];
+            if (!jsonPath.is_array())
                 continue;
 
-            const std::string &str = jsonNode.get<js::string_t>();
-            Vector nodePos{ 0, 0, 0 };
-            if (sscanf(str.c_str(), "[%f %f %f]", &nodePos.x, &nodePos.y, &nodePos.z) != 3)
-                continue;
-
-            TNode pathNode{ CTrackHandle(pathID, nodeID) };
-
-            if (trackPath.nodes.size() > 0)
+            TPath trackPath{ CTrackHandle(pathID) };
+            for (size_t nodeID = 0; nodeID < jsonPath.size(); nodeID++)
             {
-                TNode& prevNode = trackPath.nodes.back();
-                
-                // Save prev and next
-                pathNode.hPrev = prevNode.id;
-                prevNode.hNext = pathNode.id;
+                const auto& jsonNode = jsonPath[nodeID];
+                if (!jsonNode.is_string())
+                    continue;
 
-                // Calc distances for prev node
-                float len = prevNode.pos.DistTo(nodePos) * 0.01905f;
-                prevNode.dir = (nodePos - prevNode.pos).Normalized();
-                prevNode.vec = nodePos - prevNode.pos;
-                prevNode.length = len;
+                const std::string& str = jsonNode.get<js::string_t>();
+                Vector nodePos{ 0, 0, 0 };
+                if (sscanf(str.c_str(), "[%f %f %f]", &nodePos.x, &nodePos.y, &nodePos.z) != 3)
+                    continue;
 
-                // Calc path length
-                trackPath.length += len;
+                TNode pathNode{ CTrackHandle(pathID, nodeID) };
+
+                if (trackPath.nodes.size() > 0)
+                {
+                    TNode& prevNode = trackPath.nodes.back();
+
+                    // Save prev and next
+                    pathNode.hPrev = prevNode.id;
+                    prevNode.hNext = pathNode.id;
+
+                    // Calc distances for prev node
+                    float len = prevNode.pos.DistTo(nodePos) * 0.01905f;
+                    prevNode.dir = (nodePos - prevNode.pos).Normalized();
+                    prevNode.vec = nodePos - prevNode.pos;
+                    prevNode.length = len;
+
+                    // Calc path length
+                    trackPath.length += len;
+                }
+
+                pathNode.pos = nodePos;
+                pathNode.x = trackPath.length;
+
+                trackPath.nodes.push_back(pathNode);
+                AddSpatial(pathNode);
             }
 
-            pathNode.pos = nodePos;
-            pathNode.x = trackPath.length;
-
-            trackPath.nodes.push_back(pathNode);
-            AddSpatial(pathNode);
+            m_Paths.push_back(trackPath);
         }
-
-        m_Paths.push_back(trackPath);
+        catch (js::exception& e)
+        {
+            ConColorMsg(Color(255, 0, 0, 255), "RailNetwork: Fail to load tracks: %s\n", e.what());
+            Stop();
+            return;
+        }
     }
 
     // Find places where tracks link up together
@@ -446,15 +639,15 @@ void CRailNetwork::LoadTrack()
         auto pos1 = GetPositionOnTrack(nodeFirst.pos, vec3_angle, opt);
         auto pos2 = GetPositionOnTrack(nodeLast.pos, vec3_angle, opt);
 
-        if (pos1.size() || pos2.size()) Msg("\nJoints for path(%d):\n", path.id.PathID() + 1);
+        //if (pos1.size() || pos2.size()) Msg("\nJoints for path(%d):\n", path.id.PathID() + 1);
 
         if (pos1.size() > 0)
         {
             CTrackHandle hJoin1 = pos1[0].hNode1;
             TNode& join1 = m_Paths[hJoin1.PathID()].nodes[hJoin1.NodeID()];
 
-            Msg("\tjoin1(%d).branches = {x=%.03f  id=%d}\n", join1.id.NodeID() + 1, pos1[0].pos.x, nodeFirst.id.NodeID() + 1);
-            Msg("\tnode1(%d).branches = {x=%.03f  id=%d}\n", nodeFirst.id.NodeID() + 1, nodeFirst.x, join1.id.NodeID() + 1);
+            //Msg("\tjoin1(%d).branches = {x=%.03f  id=%d}\n", join1.id.NodeID() + 1, pos1[0].pos.x, nodeFirst.id.NodeID() + 1);
+            //Msg("\tnode1(%d).branches = {x=%.03f  id=%d}\n", nodeFirst.id.NodeID() + 1, nodeFirst.x, join1.id.NodeID() + 1);
             
             join1.AddBranch(pos1[0].pos.x, nodeFirst.id);
             nodeFirst.AddBranch(nodeFirst.x, join1.id);
@@ -465,8 +658,8 @@ void CRailNetwork::LoadTrack()
             CTrackHandle hJoin2 = pos2[0].hNode1;
             auto& join2 = m_Paths[hJoin2.PathID()].nodes[hJoin2.NodeID()];
 
-            Msg("\tjoin2(%d).branches = {x=%.03f  id=%d}\n", join2.id.NodeID() + 1, pos2[0].pos.x, nodeLast.id.NodeID() + 1);
-            Msg("\tnode2(%d).branches = {x=%.03f  id=%d}\n", nodeLast.id.NodeID() + 1, nodeLast.x, join2.id.NodeID() + 1);
+            //Msg("\tjoin2(%d).branches = {x=%.03f  id=%d}\n", join2.id.NodeID() + 1, pos2[0].pos.x, nodeLast.id.NodeID() + 1);
+            //Msg("\tnode2(%d).branches = {x=%.03f  id=%d}\n", nodeLast.id.NodeID() + 1, nodeLast.x, join2.id.NodeID() + 1);
 
             join2.AddBranch(pos2[0].pos.x, nodeLast.id);
             nodeLast.AddBranch(nodeLast.x, join2.id);
@@ -501,7 +694,7 @@ void CRailNetwork::LoadTrack()
                     }
 
                     g_Lua->ReferencePush(path.iRef);
-                    GM::p_lua_rawseti(g_Lua->GetState(), -2, ++i);
+                    GM::lua_rawseti(g_Lua->GetState(), -2, ++i);
                 }
             }
             g_Lua->SetField(-2, "Paths");
@@ -510,7 +703,29 @@ void CRailNetwork::LoadTrack()
     }
     g_Lua->Pop();
 
-    m_Initialized = true;
+    PrintStatistics();
+}
+
+void CRailNetwork::LoadSigns()
+{
+    if (m_Paths.empty())
+        return;
+
+    j_Signs = loadSignalData("signs");
+
+    if (j_Signs.empty())
+    {
+        Stop();
+        return;
+    }
+
+    js::number_float_t version = j_Signs.value("Version", 0.0);
+    if (version != 1.2)
+    {
+        ConColorMsg(Color(255, 0, 0, 255), "RailNetwork: This signs file is incompatible with signs version 1.2\n");
+        Stop();
+        return;
+    }
 }
 
 CRailNetwork::TGetTrackPosRes CRailNetwork::GetTrackPosition(const TPath& path, float x)
@@ -564,7 +779,7 @@ void CRailNetwork::PrintStatistics()
 {
     if (!m_Initialized)
     {
-        ConColorMsg(Color(255, 0, 0, 255), "RailNetwork: Not initialized\n");
+        ConColorMsg(Color(255, 0, 0, 255), "RailNetwork::PrintStatistics(): Not initialized\n");
         return;
     }
 
@@ -734,7 +949,7 @@ int CRailNetwork::GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA)
                 LUA->PushNumber(res.distance);
                 LUA->SetField(-2, "distance");
             }
-            GM::p_lua_rawseti(LUA->GetState(), -2, ++i);
+            GM::lua_rawseti(LUA->GetState(), -2, ++i);
         }
     }
 
@@ -785,22 +1000,212 @@ int CRailNetwork::GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA)
                 for (auto& node : path.nodes)
                 {
                     LUA->PushVector(node.pos);
-                    GM::p_lua_rawseti(LUA->GetState(), -2, ++j);
+                    GM::lua_rawseti(LUA->GetState(), -2, ++j);
                 }
             }
-            GM::p_lua_rawseti(LUA->GetState(), -2, ++i);
+            GM::lua_rawseti(LUA->GetState(), -2, ++i);
         }
-        
     }
     return 1;
 }
 
-void CRailNetwork::PushPath(GarrysMod::Lua::ILuaBase* LUA)
+int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
+{
+    std::string itype = LUA->CheckString(1);
+    LUA->CheckType(2, g_TLuaHandleNode);
+    LUA->CheckType(3, GM::Type::Function);
+    float x = LUA->CheckNumber(4);
+    bool dir = LUA->GetBool(5);
+    bool has_checked = LUA->IsType(6, GM::Type::Table);
+
+    CTrackHandle hNode = LUA->GetUserdata(2);
+    if (!hNode.IsValid())
+        return 0;
+    
+    return 0;
+}
+
+int CRailNetwork::ARSJointScan(GarrysMod::Lua::ILuaBase* LUA)
+{
+    return 0;
+}
+
+int CRailNetwork::ARSJointScanBack(GarrysMod::Lua::ILuaBase* LUA)
+{
+    return 0;
+}
+
+int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
+{
+    if (j_Signs.empty())
+        return 0;
+
+    if (!LUA->IsType(1, GM::Type::Entity) || !LUA->IsType(2, GM::Type::String))
+        return 0;
+
+    CBaseHandle hEnt = GMOD_GetEntHandle(LUA, 1);
+    if (!hEnt.IsValid())
+        return 0;
+
+    std::string linkName = LUA->GetString(2);
+    
+    TSignal sig;
+    for (size_t i = 1; i < j_Signs.size(); i++)
+    {
+        try
+        {
+            const auto& jSign = j_Signs.at(std::to_string(i));
+
+            std::string className = jSign.value("Class", "???");
+            if (className != "gmod_track_signal")
+                continue;
+
+            std::string name = jSign.value("Name", "???");
+            if (name != linkName)
+                continue;
+
+            sig.name = name;
+            sig.routeNumberStr = jSign.value("RouteNumber", "");
+            if (!sig.routeNumberStr.empty())
+            {
+                try {
+                    sig.routeNumber = std::stoi(sig.routeNumberStr);
+                }
+                catch (std::exception&) {}
+            }            
+
+            sig.routeNumberSetup = jSign.value("RouteNumberSetup", "");
+            sig.isolateSwitches = jSign.value("IsolateSwitches", true);
+            sig.passOcc = jSign.value("PassOcc", false);
+            sig.twoToSix = jSign.value("TwoToSix", false);
+
+            // sig.pos
+            std::string posStr = jSign.value("Pos", "[0 0 0]");
+            Vector pos{ 0,0,0 };
+            if (sscanf(posStr.c_str(), "[%f %f %f]", &pos.x, &pos.y, &pos.z) == 3)
+                sig.pos = pos;
+
+            // sig.ang
+            std::string angStr = jSign.value("Angles", "{0 0 0}");
+            QAngle ang{ 0,0,0 };
+            if (sscanf(angStr.c_str(), "{%f %f %f}", &ang.x, &ang.y, &ang.z) == 3)
+                sig.ang = ang;
+
+            if (jSign.find("Routes") != jSign.end())
+            {
+                for (auto r : jSign["Routes"])
+                {
+                    TRoute route;
+                    route.name = r.value("RouteName", "");
+                    route.nextSignal = r.value("NextSignal", "");
+                    route.arsCodes = r.value("ARSCodes", "");
+                    route.lights = r.value("Lights", "");
+                    route.switches = r.value("Switches", "");
+                    route.emer = r.value("Emer", false);
+                    route.repeater = r.value("Repeater", false);
+                    route.manual = r.value("Manual", false);
+                    route.enRou = r.value("EnRou", false);
+                    sig.routes.push_back(route);
+                }
+            }
+            break;
+        }
+        catch (js::exception& e)
+        {
+            Warning("RailNetwork: Fail to parse track data at index %d: %s\n", i, e.what());
+            Stop();
+            return 0;
+        }
+    }
+
+    if (sig.name.empty())
+    {
+        Warning("RailNetwork: Fail to link signal %s\n", linkName.c_str());
+        return 0;
+    }
+
+    int entIdx = hEnt.GetEntryIndex();
+    sig.handle = hEnt;
+    sig.edEntity = &g_pEdictList[entIdx];
+    sig.pEntity = sig.edEntity->GetIServerEntity()->GetBaseEntity();
+
+    m_Signals[entIdx] = sig;
+    
+    // Link signal to node
+    TGetPosOnTrackOpt options;
+    options.z_pad = 256;
+    Vector sigPos2;
+    localToWorld(sig.pos, sig.ang, Vector(0, 10, 0), sigPos2);
+    auto pos = GetPositionOnTrack(sig.pos, sig.ang - QAngle(0, 90, 0), options);
+    auto pos2 = GetPositionOnTrack(sigPos2, sig.ang - QAngle(0, 90, 0), options);
+    if (pos.size() > 0)
+    {
+        // A signal belongs only to a single track
+        m_SignalsForNode[pos[0].hNode1].push_back(sig.handle);
+        sig.node = pos[0].hNode1;
+        sig.trackX = pos[0].pos.x;
+        if (pos2.size() > 0)
+        {
+            sig.trackDir = (pos2[0].pos.x - sig.trackX) < 0;
+        }
+        else
+        {
+            ConColorMsg(Color(255, 0, 255, 255),
+                "RailNetwork: Signal %s, second position not found, system can't detect direction of the signal!", sig.name.c_str());
+            sig.trackDir = true;
+        }
+    }
+    else
+    {
+        if (sig.routes.empty() || sig.routes[0].nextSignal != "")
+        {
+            ConColorMsg(Color(255, 0, 255, 255),
+                "RailNetwork: Signal %s, position not found, system can't detect the track occupation!", sig.name.c_str());
+        }
+    }
+    if (sig.routes.empty())
+        ConColorMsg(Color(255, 0, 255, 255),
+            "RailNetwork: Signal %s don't have first route", sig.name.c_str());
+
+
+   
+
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+int CRailNetwork::SigSetRoute(GarrysMod::Lua::ILuaBase* LUA)
+{
+    if (j_Signs.empty())
+        return 0;
+
+    LUA->CheckType(1, GM::Type::Entity);
+    int routeIdx = LUA->CheckNumber(2);
+
+    CBaseHandle hEnt = GMOD_GetEntHandle(LUA, 1);
+    if (!hEnt.IsValid())
+        return 0;
+
+    try
+    {
+        TSignal& sig = m_Signals.at(hEnt.GetEntryIndex());
+        if (!UTIL_IsValidEdict(sig.edEntity))
+            return 0;
+
+        sig.route = routeIdx-1;
+    }
+    catch (std::out_of_range& e) {}
+
+    return 0;
+}
+
+int CRailNetwork::PushPath(GarrysMod::Lua::ILuaBase* LUA)
 {
     if (m_Paths.empty())
     {
         LUA->PushNil();
-        return;
+        return 1;
     }
         
     int pathID = LUA->CheckNumber(1);
@@ -808,7 +1213,7 @@ void CRailNetwork::PushPath(GarrysMod::Lua::ILuaBase* LUA)
     if (pathID < 0)
     {
         LUA->PushNil();
-        return;
+        return 1;
     }
 
     try
@@ -820,14 +1225,15 @@ void CRailNetwork::PushPath(GarrysMod::Lua::ILuaBase* LUA)
     {
         LUA->PushNil();
     }
+    return 1;
 }
 
-void CRailNetwork::PushNode(GarrysMod::Lua::ILuaBase* LUA)
+int CRailNetwork::PushNode(GarrysMod::Lua::ILuaBase* LUA)
 {
     if (m_Paths.empty())
     {
         LUA->PushNil();
-        return;
+        return 1;
     }
 
     int pathID = LUA->CheckNumber(1);
@@ -838,7 +1244,7 @@ void CRailNetwork::PushNode(GarrysMod::Lua::ILuaBase* LUA)
     if (pathID < 0 || nodeID < 0)
     {
         LUA->PushNil();
-        return;
+        return 1;
     }
 
     try
@@ -851,6 +1257,8 @@ void CRailNetwork::PushNode(GarrysMod::Lua::ILuaBase* LUA)
     {
         LUA->PushNil();
     }
+
+    return 1;
 }
 
 void CRailNetwork::RegisterLuaUserData()
@@ -897,46 +1305,54 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
     if (!LUA->IsType(2, GM::Type::String))
         return 0;
 
-    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
-
     const char* id = LUA->GetString(2);
-    if (strcmp(id, "x") == 0) // node.x
+    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+    
+    // Compare in decending calling times order
+    // node.branches
+    if (EQ_2CHAR(id, 'b', 'r'))
+    {
+        if (node.branches.size() == 0)
+        {
+            LUA->PushNil();
+            return 1;
+        }
+
+        LUA->CreateTable();
+        for (int i = 0; i < node.branches.size(); i++)
+        {
+            const auto& branch = node.branches[i];
+            LUA->CreateTable();
+            {
+                LUA->PushNumber(branch.x);
+                GM::lua_rawseti(LUA->GetState(), -2, 1);
+
+                auto& brNode = g_RailNetwork.m_Paths[branch.hNode.PathID()].nodes[branch.hNode.NodeID()];
+                LUA->ReferencePush(brNode.iRef);
+                GM::lua_rawseti(LUA->GetState(), -2, 2);
+            }
+            GM::lua_rawseti(LUA->GetState(), -2, i + 1);
+        }
+
+        return 1;
+    }
+
+    // node.x
+    if (EQ_2CHAR(id, 'x', '\0'))
     {
         LUA->PushNumber(node.x);
         return 1;
     }
 
-    if (strcmp(id, "length") == 0) // node.length
+    // node.length
+    if (EQ_2CHAR(id, 'l', 'e'))
     {
         LUA->PushNumber(node.length);
         return 1;
     }
 
-    if (strcmp(id, "id") == 0) // node.id
-    {
-        LUA->PushNumber(node.id.NodeID() + 1);
-        return 1;
-    }
-
-    if (strcmp(id, "pos") == 0) // node.pos
-    {
-        LUA->PushVector(node.pos);
-        return 1;
-    }
-
-    if (strcmp(id, "dir") == 0) // node.dir
-    {
-        LUA->PushVector(node.dir);
-        return 1;
-    }
-
-    if (strcmp(id, "vec") == 0) // node.vec
-    {
-        LUA->PushVector(node.vec);
-        return 1;
-    }
-
-    if (strcmp(id, "next") == 0) // node.next
+    // node.next
+    if (EQ_2CHAR(id, 'n', 'e'))
     {
         auto& hNextNode = node.hNext;
         if (!hNextNode.IsValidNodeID())
@@ -947,7 +1363,8 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
         return 1;
     }
 
-    if (strcmp(id, "prev") == 0) // node.prev
+    // node.prev
+    if (EQ_2CHAR(id, 'p', 'r'))
     {
         auto& hPrevNode = node.hPrev;
         if (!hPrevNode.IsValidNodeID())
@@ -958,37 +1375,39 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
         return 1;
     }
 
-    if (strcmp(id, "path") == 0) // node.path
+    // node.path
+    if (EQ_2CHAR(id, 'p', 'a'))
     {
         auto& path = g_RailNetwork.m_Paths[node.id.PathID()];
         LUA->ReferencePush(path.iRef);
         return 1;
     }
 
-    if (strcmp(id, "branches") == 0)  // node.branches
+    // node.id
+    if (EQ_2CHAR(id, 'i', 'd'))
     {
-        if (node.branchesCount == 0)
-        {
-            LUA->PushNil();
-            return 1;
-        }
+        LUA->PushNumber(node.id.NodeID() + 1);
+        return 1;
+    }
 
-        LUA->CreateTable();
-        for (int i = 0; i < node.branchesCount; i++)
-        {
-            const auto& branch = node.branches[i];
-            LUA->CreateTable();
-            {
-                LUA->PushNumber(branch.x);
-                GM::p_lua_rawseti(LUA->GetState(), -2, 1);
+    // node.pos
+    if (EQ_2CHAR(id, 'p', 'o'))
+    {
+        LUA->PushVector(node.pos);
+        return 1;
+    }
 
-                auto& node = g_RailNetwork.m_Paths[branch.hNode.PathID()].nodes[branch.hNode.NodeID()];
-                LUA->ReferencePush(node.iRef);
-                GM::p_lua_rawseti(LUA->GetState(), -2, 2);
-            }
-            GM::p_lua_rawseti(LUA->GetState(), -2, i+1);
-        }
+    // node.dir
+    if (EQ_2CHAR(id, 'd', 'i'))
+    {
+        LUA->PushVector(node.dir);
+        return 1;
+    }
 
+    // node.vec
+    if (EQ_2CHAR(id, 'v', 'e'))
+    {
+        LUA->PushVector(node.vec);
         return 1;
     }
 
@@ -1066,19 +1485,23 @@ int CRailNetwork::LUA_RNPath__index(lua_State* L)
     if (LUA->IsType(2, GM::Type::String))
     {
         const char* id = LUA->GetString(2);
-        if (strcmp(id, "id") == 0) // path.id
+
+        // path.id
+        if (EQ_2CHAR(id, 'i', 'd'))
         {
             LUA->PushNumber(hPath.PathID() + 1);
             return 1;
         }
 
-        if (strcmp(id, "length") == 0) // path.length
+        // path.length
+        if (EQ_2CHAR(id, 'l', 'e'))
         {
             LUA->PushNumber(path.length);
             return 1;
         }
 
-        if (strcmp(id, "GetTrackPosition") == 0) // path.GetTrackPosition
+        // path.GetTrackPosition (saved for backward compability)
+        if (EQ_2CHAR(id, 'G', 'e'))
         {
             LUA->PushBool(true);
             return 1;

@@ -295,9 +295,15 @@ LUA_FUNCTION( TS_API_StartRailNetwork )
 //------------------------------------------------------------------------------
 // RailNetwork Lua API
 //------------------------------------------------------------------------------
-LUA_FUNCTION(RN_API_Initialize)
+LUA_FUNCTION(RN_API_Start)
 {
-	g_RailNetwork.Initialize();
+	g_RailNetwork.Start();
+	return 0;
+}
+
+LUA_FUNCTION(RN_API_Stop)
+{
+	g_RailNetwork.Stop();
 	return 0;
 }
 
@@ -348,7 +354,7 @@ LUA_FUNCTION(RN_API_AddARSSubSection)
 
 LUA_FUNCTION(RN_API_ScanTrack)
 {
-	return 0;
+	return g_RailNetwork.ScanTrack(LUA);
 }
 
 LUA_FUNCTION(RN_API_GetSignalByName)
@@ -387,34 +393,31 @@ LUA_FUNCTION(RN_API_PrintStatistics)
 	return 0;
 }
 
+LUA_FUNCTION(RN_API_LinkSignalEntity)
+{
+	return g_RailNetwork.LinkSignalEntity(LUA);
+}
+
+LUA_FUNCTION(RN_API_SigSetRoute)
+{
+	return g_RailNetwork.SigSetRoute(LUA);
+}
+
 // lua_run print(RailNetwork.GetTrackPath(0))
 LUA_FUNCTION(RN_API_GetTrackPath)
 {
-	g_RailNetwork.PushPath(LUA);
-	return 1;
+	return g_RailNetwork.PushPath(LUA);
 }
 
 // lua_run print(RailNetwork.GetTrackNode(0,0))
 LUA_FUNCTION(RN_API_GetTrackNode)
 {
-	g_RailNetwork.PushNode(LUA);
-	return 1;
+	return g_RailNetwork.PushNode(LUA);
 }
 
-#include <cbase.h>
+
 LUA_FUNCTION(RN_API_Test)
 {
-	/*const char* className = LUA->CheckString(1);
-	LUA->Pop();
-
-	CBaseEntity* ent = GMOD_EntsCreate(LUA, className);
-	Msg("Test(): top=%d     ent=%p\n", LUA->Top(), ent);*/
-	
-	int idx = LUA->CheckNumber(1);
-	LUA->Pop();
-
-	GMOD_EntityRemove(LUA, idx);
-
 	return 0;
 }
 
@@ -538,8 +541,14 @@ GMOD_MODULE_OPEN()
 		CRailNetwork::RegisterLuaUserData();
 		LUA->CreateTable();
 		{
-			PushCFunc(RN_API_Initialize, "Initialize");
+			PushCFunc(RN_API_Start, "Start");
+			PushCFunc(RN_API_Stop, "Stop");
 			PushCFunc(RN_API_GetTrackEditorPaths, "GetTrackEditorPaths");
+			PushCFunc(RN_API_LinkSignalEntity, "LinkSignalEntity");
+			PushCFunc(RN_API_SigSetRoute, "SigSetRoute");
+
+			//PushCFunc(RN_API_ARSJointScan, "ARSJointScan");
+			//PushCFunc(RN_API_ARSJointScanBack, "ARSJointScanBack");
 
 			// Railnetwork API
 			PushCFunc(RN_API_NearestNodes, "NearestNodes");
@@ -550,7 +559,7 @@ GMOD_MODULE_OPEN()
 			//PushCFunc(RN_API_PostSignalInitialize, "PostSignalInitialize");
 			//PushCFunc(RN_API_UpdateSwitchEntities, "UpdateSwitchEntities");
 			//PushCFunc(RN_API_AddARSSubSection, "AddARSSubSection");
-			//PushCFunc(RN_API_ScanTrack, "ScanTrack");
+			PushCFunc(RN_API_ScanTrack, "ScanTrack");
 			//PushCFunc(RN_API_GetSignalByName, "GetSignalByName");
 			//PushCFunc(RN_API_GetSwitchByName, "GetSwitchByName");
 			//PushCFunc(RN_API_GetNextTrafficLight, "GetNextTrafficLight");

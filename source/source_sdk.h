@@ -10,7 +10,7 @@ namespace GarrysMod::Lua
     class ILuaBase;
 
     typedef void (*fn_lua_rawseti)(lua_State* L, int idx, int n);
-    extern fn_lua_rawseti p_lua_rawseti;
+    extern fn_lua_rawseti lua_rawseti;
 }
 
 bool InitSourceSDK(GarrysMod::Lua::ILuaBase* LUA);
@@ -21,7 +21,8 @@ void CVarTrainCoresCallback(IConVar* var, const char* pOldValue, float flOldValu
 void ClearLoadCache(const CCommand& command);
 void ClearPrintQueue(const CCommand& command);
 
-bool UTIL_IsValidEdict(edict_t& edict);
+bool UTIL_IsValidEntity(CBaseEntity* pEnt);
+bool UTIL_IsValidEdict(edict_t* edict);
 CBaseEntity* UTIL_FindEntityByClassname(CBaseEntity* pStartEntity, const char* query);
 unsigned long GMOD_GetEntHandle(GarrysMod::Lua::ILuaBase* LUA, int iStackPos);
 void GMOD_PushEntityOnStack(GarrysMod::Lua::ILuaBase* LUA, int entityIndex);

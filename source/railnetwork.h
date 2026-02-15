@@ -5,6 +5,8 @@
 #include <utlmemory.h>
 #include <vector>
 #include <unordered_map>
+#include <string>
+#include <nlohmann/json.hpp>
 
 namespace GarrysMod::Lua { class ILuaBase; }
 struct lua_State;
@@ -67,13 +69,13 @@ private:
 class CRailNetwork
 {
 public:
-    void Initialize();
+    void Start();
     void Stop();
     void Think();
     void PrintStatistics();
     
     void AddTrain(CBaseHandle handle);
-    void RemoveTrain(int entIdx) { m_Trains[entIdx].Invalidate(); }
+    void RemoveTrain(int entIdx) { m_Trains[entIdx].InvalidateTrain(); }
 
     std::vector<CTrackHandle> NearestNodes(const Vector& pos);
 
@@ -101,7 +103,7 @@ public:
         float distance = 0.0f;  // Distance to path axis
         bool forward = false;   // Is facing forward relative to track
     };
-    std::vector<TGetPosOnTrackRes> GetPositionOnTrack(const Vector& pos, const QAngle& ang = QAngle(0,0,0), const TGetPosOnTrackOpt& opts = TGetPosOnTrackOpt()); 
+    std::vector<TGetPosOnTrackRes> GetPositionOnTrack(const Vector& pos, const QAngle& ang = QAngle(0,0,0), const TGetPosOnTrackOpt& opts = TGetPosOnTrackOpt());
 
     //--------------------------------------
     // GetTrackPosition
@@ -112,29 +114,101 @@ public:
         Vector ang{ 0,0,0 };
         CTrackHandle hNode{};
     };
-    //TGetTrackPosRes GetTrackPos(int pathID, float x);
+    TGetTrackPosRes GetTrackPosition(int pathID, float x);
+
+    enum ScanTrackMode
+    {
+        M_Undefined = 0,
+        M_Light,
+        M_ARS,
+        M_Switch
+    };
+
+    // Return not nil
+    typedef bool (*fnScanTrack)(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    bool ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked = nullptr, void* data = nullptr);
 
 private:
-    struct TTrain
+
+    struct TEntBase
     {
         CBaseHandle handle{ INVALID_EHANDLE_INDEX };
         edict_t* edEntity = nullptr;
         CBaseEntity* pEntity = nullptr;
-        Vector pos{ 0.0f, 0.0f, 0.0f };
-        Vector lposFrontBogey{ 0.0f, 0.0f, 0.0f };
-        Vector lposRearBogey{ 0.0f, 0.0f, 0.0f };
-        bool bFrontBogey = false;
-        bool bRearBogey = false;
-        int iNeedFindBogeys = -1;
-
-        void Invalidate()
+        void InvalidateBase()
         {
             handle = INVALID_EHANDLE_INDEX;
             edEntity = nullptr;
             pEntity = nullptr;
+        }
+    };
+
+    struct TTrain : TEntBase
+    {
+        Vector pos{ 0,0,0 };
+        Vector lposFrontBogey{ 0,0,0 };
+        Vector lposRearBogey{ 0,0,0 };
+        bool bFrontBogey = false;
+        bool bRearBogey = false;
+        int iNeedFindBogeys = -1;
+
+        void InvalidateTrain()
+        {
+            InvalidateBase();
             bFrontBogey = false;
             bRearBogey = false;
             iNeedFindBogeys = -1;
+        }
+    };
+
+    struct TRoute
+    {
+        std::string name;
+        std::string nextSignal;
+        std::string arsCodes;
+        std::string lights;
+        std::string switches;
+        bool opened = false;
+        bool emer = false;
+        bool repeater = false;
+        bool manual = false;
+        bool enRou = false;
+    };
+
+    struct TSignal : TEntBase
+    {
+        CTrackHandle node{};
+        std::string name;
+        Vector pos{ 0,0,0 };
+        QAngle ang{ 0,0,0 };
+        int routeNumber = -1;
+        std::string routeNumberStr;
+        std::string routeNumberSetup;
+        std::vector<TRoute> routes;
+        int route = 0;
+        float trackX = 0.0f;
+        bool trackDir = false;
+        bool isolateSwitches = false;
+        bool passOcc = false;
+        bool twoToSix = false;
+
+        void InvalidateSignal()
+        {
+            InvalidateBase();
+            node = CTrackHandle();
+            name.clear();
+            pos.Zero();
+            ang.x = ang.y = ang.z = 0;
+            routeNumber = -1;
+            routeNumberStr.clear();
+            routeNumberSetup.clear();
+            routes.clear();
+            route = 0;
+            trackX = 0;
+            trackDir = false;
+            isolateSwitches = false;
+            passOcc = false;
+            twoToSix = false;
         }
     };
 
@@ -151,24 +225,19 @@ private:
         Vector vec{ 0,0,0 };
 
         struct TJoin {
+            TJoin(const CTrackHandle& node, float brX) :
+                hNode{ node }, x{ brX } {}; 
             CTrackHandle hNode;
             float x = 0;
         };
 
-        static const int s_MaxBranches = 4;
-        int branchesCount = 0;
-        TJoin branches[s_MaxBranches]{};
-
+        std::vector<TJoin> branches;
         bool AddBranch(float brX, const CTrackHandle& node)
         {
-            if (branchesCount == s_MaxBranches)
-                return false;
-
             if (!node.IsValidNodeID())
                 return false;
 
-            auto& branch = branches[branchesCount++];
-            branch = { node, brX };
+            branches.emplace_back(node, brX);
             return true;
         }
 
@@ -215,20 +284,20 @@ private:
     void UpdateTrains();
 
     void LoadTrack();
+    void LoadSigns();
     void AddSpatial(const TNode& node);
 
     TGetTrackPosRes GetTrackPosition(const TPath& path, float x);
 
     std::array<TTrain, MAX_EDICTS> m_Trains;
     std::vector<TPath> m_Paths;
-
-    //CUtlRBTree<TPath> mPathsList;
-
     std::unordered_map<int, std::vector<CTrackHandle>> m_SpatialLookup;
 
+    nlohmann::json j_Signs;
+    std::array<TSignal, MAX_EDICTS> m_Signals;
+    std::unordered_map<int, std::vector<CBaseHandle>> m_SignalsForNode;
+
     bool m_Initialized = false;
-
-
 //--------------------------------------
 // Garry's Mod Lua
 //--------------------------------------
@@ -237,9 +306,15 @@ public:
     int GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackPosition(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA);
+    int ScanTrack(GarrysMod::Lua::ILuaBase* LUA);
 
-    void PushPath(GarrysMod::Lua::ILuaBase* LUA);
-    void PushNode(GarrysMod::Lua::ILuaBase* LUA);
+    int ARSJointScan(GarrysMod::Lua::ILuaBase* LUA);
+    int ARSJointScanBack(GarrysMod::Lua::ILuaBase* LUA);
+
+    int LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA);
+    int SigSetRoute(GarrysMod::Lua::ILuaBase* LUA);
+    int PushPath(GarrysMod::Lua::ILuaBase* LUA);
+    int PushNode(GarrysMod::Lua::ILuaBase* LUA);
 
     static void RegisterLuaUserData();
 private:
