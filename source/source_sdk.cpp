@@ -14,6 +14,8 @@
 #include <keyvalues.h>
 #include <game/server/iplayerinfo.h>
 
+namespace GM = GarrysMod::Lua;
+
 //------------------------------------------------------------------------------
 // IFileSystem interface
 //------------------------------------------------------------------------------
@@ -82,6 +84,24 @@ void ClearPrintQueue(const CCommand& command)
 	g_SharedPrint.ClearPrintQueue();
 }
 
+namespace GarrysMod::Lua
+{
+	fn_lua_rawseti lua_rawseti = nullptr;
+}
+static bool GetGLuaPointers()
+{
+	SourceSDK::ModuleLoader lua_shared_loader("lua_shared");
+	GM::lua_rawseti = (GM::fn_lua_rawseti)lua_shared_loader.GetSymbol("lua_rawseti");
+
+	if (GM::lua_rawseti == nullptr)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to get lua_rawseti()!\n");
+		return false;
+	}
+
+	return true;
+}
+
 CGlobalVarsBase* g_pServerGlobalVars = nullptr;
 static bool GetGlobalVars()
 {
@@ -127,7 +147,9 @@ static void SaveSettings(IFileSystem* filesystem)
 static bool RegisterConCommands()
 {
 	SourceSDK::FactoryLoader vstdlib_loader("vstdlib");
-	cvar = g_pCVar = vstdlib_loader.GetInterface<ICvar>(CVAR_INTERFACE_VERSION);
+	ICvar* cvar007 = vstdlib_loader.GetInterface<ICvar>("VEngineCvar007");
+	ICvar* cvar004 = vstdlib_loader.GetInterface<ICvar>("VEngineCvar004");
+	cvar = g_pCVar = (cvar007 != nullptr) ? cvar007 : cvar004;
 	if (g_pCVar == nullptr)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Unable to load Cvar Interface!\n");
@@ -186,6 +208,9 @@ static void LoadConVariables(IFileSystem* filesystem)
 
 bool InitSourceSDK()
 {
+	if (!GetGLuaPointers())
+		return false;
+
 	if (!GetGlobalVars())
 		return false;
 

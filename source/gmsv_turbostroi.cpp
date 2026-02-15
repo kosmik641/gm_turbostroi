@@ -4,6 +4,7 @@
 #include <vector>
 #include <queue>
 #include <GarrysMod/Lua/Interface.h>
+#include <GarrysMod/Lua/LuaInterface.h>
 #include <convar.h>
 #include <basehandle.h>
 #include <globalvars_base.h>
@@ -234,8 +235,44 @@ LUA_FUNCTION( API_SendMessage )
 
 LUA_FUNCTION( API_RecvMessages ) 
 {
-	// Not used
-	return 0;
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (userdata == nullptr)
+		return 0;
+
+	int msg_count = userdata->SimReadAvailable();
+
+	if (msg_count == 0)
+		return 0;
+
+	lua_State* L = LUA->GetState();
+	GM::ILuaInterface* iLUA = reinterpret_cast<GM::ILuaInterface*>(LUA);
+	iLUA->PreCreateTable(msg_count+1, 0);
+	{
+		for (int i = 1; i <= msg_count; i++)
+		{
+			const TThreadMsg& tmsg = userdata->SimRecvMessage();
+			iLUA->PreCreateTable(5+1, 0); // 0 allocated too
+			{
+				LUA->PushNumber(tmsg.message);
+				GM::lua_rawseti(L, -2, 1);
+
+				LUA->PushString(tmsg.system_name);
+				GM::lua_rawseti(L, -2, 2);
+
+				LUA->PushString(tmsg.name);
+				GM::lua_rawseti(L, -2, 3);
+
+				LUA->PushNumber(tmsg.index);
+				GM::lua_rawseti(L, -2, 4);
+
+				LUA->PushNumber(tmsg.value);
+				GM::lua_rawseti(L, -2, 5);
+			}
+			GM::lua_rawseti(L, -2, i);
+		}
+	}
+	
+	return 1;
 }
 
 LUA_FUNCTION( API_RecvMessage ) 

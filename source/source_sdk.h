@@ -1,6 +1,13 @@
 #pragma once
 #include <iconvar.h>
 
+struct lua_State;
+namespace GarrysMod::Lua
+{
+    typedef void (*fn_lua_rawseti)(lua_State* L, int idx, int n);
+    extern fn_lua_rawseti lua_rawseti;
+}
+
 bool InitSourceSDK();
 void ShutdownSourceSDK();
 
