@@ -17,9 +17,10 @@ local processMsgTbl = {
     -- OutputsList values
     -----------------------------------
     function(train,tbl,system,name,index,value)
-        if tbl.Systems[system] then
-            tbl.Systems[system][name] = value
-            train:TriggerTurbostroiInput(system,name,value)
+        local sys = tbl.Systems[system]
+        if sys then
+            sys[name] = value
+            tbl.TriggerTurbostroiInput(train,system,name,value)
         end
     end,
 
@@ -29,15 +30,16 @@ local processMsgTbl = {
     function(train,tbl,system,name,index,value)
         if not tbl.TrainWireWritersID[index] then tbl.TrainWireWritersID[index] = true end
         tbl.TrainWireTurbostroi[index] = value
-        train:TriggerTurbostroiInput("TrainWire",index,value)
+        tbl:TriggerTurbostroiInput("TrainWire",index,value)
     end,
 
     -----------------------------------
     -- TriggerInput for non accelereted system
     -----------------------------------
     function(train,tbl,system,name,index,value)
-        if tbl.Systems[system] then
-            tbl.Systems[system]:TriggerInput(name,value)
+        local sys = tbl.Systems[system]
+        if sys then
+            sys:TriggerInput(name,value)
         end
     end,
 
@@ -45,7 +47,7 @@ local processMsgTbl = {
     -- ENT:PlayOnce()
     -----------------------------------
     function(train,tbl,system,name,index,value)
-        train:PlayOnce(system,name,index,value)
+        tbl.PlayOnce(train,system,name,index,value)
     end,
 
     -----------------------------------
