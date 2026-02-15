@@ -125,8 +125,8 @@ public:
     };
 
     // Return not nil
-    typedef bool (*fnScanTrack)(const CTrackHandle& hNode, float minX, float maxX, void* data);
-    bool ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked = nullptr, void* data = nullptr);
+    typedef int (*fnScanTrack)(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    int ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked = nullptr, void* data = nullptr);
 
 private:
 

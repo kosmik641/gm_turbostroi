@@ -297,10 +297,10 @@ CRailNetwork::TGetTrackPosRes CRailNetwork::GetTrackPosition(int pathID, float x
     }    
 }
 
-bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked, void* data)
+int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked, void* data)
 {
     if (!hNode.IsValidNodeID())
-        return false;
+        return 0;
 
     bool mLight = (mode == M_Light);
     bool mARS = (mode == M_ARS);
@@ -312,7 +312,7 @@ bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack
         pChecked = new std::unordered_map<int, bool>;
     }
     std::unordered_map<int, bool>& checked = *pChecked;
-    if (checked[hNode]) return false;
+    if (checked[hNode]) return 0;
     checked[hNode] = true;
 
     const TNode& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
@@ -393,9 +393,9 @@ bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack
         }
     }
     // Call function for the determined portion of the node
-    bool results = func(hNode, min_x, max_x, data);
-    if (results)
-        return true;
+    int results = func(hNode, min_x, max_x, data);
+    if (results > 0)
+        return results;
 
     // First check all the branches, whose positions fall within min_x..max_x
     if (!node.branches.empty() && !mARS)
@@ -405,8 +405,8 @@ bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack
             if (branch.x >= min_x && branch.x <= max_x)
             {
                 results = ScanTrack(mode, branch.hNode, func, branch.x, true, pChecked, data);
-                if (results)
-                    return true;
+                if (results > 0)
+                    return results;
             }
         }
     }
@@ -415,19 +415,19 @@ bool CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack
     if ((dir || mSwitch) && (!isolateForward))
     {
         results = ScanTrack(mode, node.hNext, func, max_x, true, pChecked, data);
-        if (results)
-            return true;
+        if (results > 0)
+            return results;
     }
 
     // If not isolated, continue scanning backward from the rear end of node
     if ((!dir || mSwitch) && (!isolateBackward))
     {
         results = ScanTrack(mode, node.hPrev, func, min_x, false, pChecked, data);
-        if (results)
-            return true;
+        if (results > 0)
+            return results;
     }
 
-    return false;
+    return 0;
 }
 
 void CRailNetwork::GetBogeys(TTrain& train)
@@ -1009,20 +1009,42 @@ int CRailNetwork::GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA)
     return 1;
 }
 
+static int luaScanTrack(const CTrackHandle& hNode, float minX, float maxX, void* data)
+{
+
+    return 0;
+}
+
 int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
 {
-    std::string itype = LUA->CheckString(1);
+    char strMode = LUA->CheckString(1)[0];
     LUA->CheckType(2, g_TLuaHandleNode);
     LUA->CheckType(3, GM::Type::Function);
     float x = LUA->CheckNumber(4);
     bool dir = LUA->GetBool(5);
-    bool has_checked = LUA->IsType(6, GM::Type::Table);
 
     CTrackHandle hNode = LUA->GetUserdata(2);
     if (!hNode.IsValid())
         return 0;
-    
-    return 0;
+
+    ScanTrackMode mode;
+    switch (strMode)
+    {
+    case 'l':
+        mode = M_Light;
+        break;
+    case 'a':
+        mode = M_ARS;
+        break;
+    case 's':
+        mode = M_Switch;
+        break;
+    default:
+        mode = M_Undefined;
+        break;
+    }
+
+    return ScanTrack(mode, hNode, luaScanTrack, x, dir);
 }
 
 int CRailNetwork::ARSJointScan(GarrysMod::Lua::ILuaBase* LUA)
