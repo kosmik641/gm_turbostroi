@@ -26,13 +26,18 @@ public:
     };
 
     CTrackHandle() = default;
+    ~CTrackHandle() = default;
     CTrackHandle(I path, I node = ONLY_PATH_NODE_ID)
     {
         m_Value = path;
         m_Value |= int(node) << 16;
     };
     CTrackHandle(const void* v) { m_Value = v ? *reinterpret_cast<const I2*>(v) : INVALID_EHANDLE_INDEX; }
-    CTrackHandle(const CTrackHandle& other) { m_Value = other.m_Value; }
+    CTrackHandle(const CTrackHandle&) = default;
+    CTrackHandle(const I2& other) {
+        m_Value = other;
+    };
+    CTrackHandle& operator=(const CTrackHandle&) = default;
 
     inline bool IsValidNodeID() const {
         return (path > INVALID_PATH_ID) && (node > INVALID_NODE_ID);
@@ -51,7 +56,7 @@ public:
     operator void*() const { return reinterpret_cast<void*>(m_Value); }
 
     I2 operator +(const I2& v) const = delete;
-    bool operator ==(const CTrackHandle& other) const
+    bool operator ==(const CTrackHandle& other) const noexcept
     {
         return (m_Value == other.m_Value);
     }
@@ -124,9 +129,9 @@ public:
         M_Switch
     };
 
-    // Return not nil
-    typedef int (*fnScanTrack)(const CTrackHandle& hNode, float minX, float maxX, void* data);
-    int ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked = nullptr, void* data = nullptr);
+    // Return non zero if found
+    typedef int (*fnScanTrack)(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data);
+    int ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, void* data = nullptr);
 
 private:
 
@@ -291,11 +296,11 @@ private:
 
     std::array<TTrain, MAX_EDICTS> m_Trains;
     std::vector<TPath> m_Paths;
-    std::unordered_map<int, std::vector<CTrackHandle>> m_SpatialLookup;
+    std::unordered_map<CTrackHandle::I2, std::vector<CTrackHandle>> m_SpatialLookup;
 
     nlohmann::json j_Signs;
     std::array<TSignal, MAX_EDICTS> m_Signals;
-    std::unordered_map<int, std::vector<CBaseHandle>> m_SignalsForNode;
+    std::unordered_map<CTrackHandle::I2, std::vector<CBaseHandle>> m_SignalsForNode;
 
     bool m_Initialized = false;
 //--------------------------------------
@@ -306,6 +311,7 @@ public:
     int GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackPosition(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA);
+    static int LuaScanTrackFn(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data);
     int ScanTrack(GarrysMod::Lua::ILuaBase* LUA);
 
     int ARSJointScan(GarrysMod::Lua::ILuaBase* LUA);

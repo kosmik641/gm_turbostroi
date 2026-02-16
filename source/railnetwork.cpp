@@ -1,5 +1,6 @@
 #include "railnetwork.h"
 
+#include <stack>
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
 #include <cbase.h>
@@ -297,134 +298,142 @@ CRailNetwork::TGetTrackPosRes CRailNetwork::GetTrackPosition(int pathID, float x
     }    
 }
 
-int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, std::unordered_map<int, bool>* pChecked, void* data)
+struct TScanTrackStackItem
 {
-    if (!hNode.IsValidNodeID())
-        return 0;
+    CTrackHandle hNode;
+    float x;
+    bool dir;
+};
 
-    bool mLight = (mode == M_Light);
-    bool mARS = (mode == M_ARS);
-    bool mSwitch = (mode == M_Switch);
+int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode1, fnScanTrack func, float x1, bool dir1, void* data)
+{
+    bool mLight = (mode == M_Light), mARS = (mode == M_ARS), mSwitch = (mode == M_Switch);
 
-    // Check if this node was already scanned
-    if (pChecked == nullptr)
+    // Stack for recursive calc
+
+    std::stack<TScanTrackStackItem> stack;
+    stack.push({ hNode1, x1, dir1 });
+
+    std::unordered_map<int, bool> checked;
+    while (!stack.empty())
     {
-        pChecked = new std::unordered_map<int, bool>;
-    }
-    std::unordered_map<int, bool>& checked = *pChecked;
-    if (checked[hNode]) return 0;
-    checked[hNode] = true;
+        TScanTrackStackItem& top = stack.top();
+        CTrackHandle hNode = top.hNode;
+        float x = top.x;
+        bool dir = top.dir;
+        stack.pop();
 
-    const TNode& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+        // Check if this node was already scanned
+        if (!hNode.IsValidNodeID()) continue;
+        if (checked[hNode]) continue;
+        checked[hNode] = true;
 
-    // Try to use entire node length by default
-    float min_x = node.x;
-    float max_x = min_x + node.length;
+        // Try to use entire node length by default
+        const TNode& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+        float min_x = node.x;
+        float max_x = min_x + node.length;
 
-    // Get range of node which can be actually sensed
-    bool isolateForward = false;    // Should scanning continue forward along track
-    bool isolateBackward = false;   // Should scanning continue backward along track
-
-    if (!m_SignalsForNode.empty())
-    {
-        const auto& nodeSignals = m_SignalsForNode[hNode];
-        for (const auto& sigItem : nodeSignals)
+        // Get range of node which can be actually sensed
+        bool isolateForward = false;    // Should scanning continue forward along track
+        bool isolateBackward = false;   // Should scanning continue backward along track
+        if (!m_SignalsForNode.empty())
         {
-            try
+            if (auto nodeSignals = m_SignalsForNode.find(hNode); nodeSignals != m_SignalsForNode.end())
             {
-                const TSignal& sig = m_Signals.at(sigItem.GetEntryIndex());
-                bool isolating = false;
-                switch (mode)
+                for (const auto& sigItem : nodeSignals->second)
                 {
-                case M_Light:
-                {
-                    isolating = (
-                            (sig.trackDir == dir && !sig.routes[sig.route].repeater)
-                            || (sig.trackDir == dir && sig.routes[sig.route].repeater && sig.routeNumber == 9)
-                            || (sig.routeNumber > -1 && sig.routes[sig.route].repeater)
-                        )
-                        && (!sig.passOcc || sig.trackX == x);
-                }
-                    break;
-                case M_ARS:
-                    isolating = (sig.trackDir == dir) && (!sig.passOcc || sig.trackX == x);
-                    break;
-                case M_Switch:
-                    isolating = sig.isolateSwitches;
-                    break;
-                default:
-                    break;
-                }
-
-                if (isolating)
-                {
-                    // If scanning forward, and there's a joint IN FRONT of current X
-                    if (dir && sig.trackX > x)
+                    try
                     {
-                        max_x = std::min(max_x, sig.trackX);
-                        isolateForward = true;
+                        const TSignal& sig = m_Signals.at(sigItem.GetEntryIndex());
+                        bool isolating = false;
+
+                        if (mLight)
+                        {
+                            isolating = (
+                                (sig.trackDir == dir && !sig.routes[sig.route].repeater)
+                                || (sig.trackDir == dir && sig.routes[sig.route].repeater && sig.routeNumber == 9)
+                                || (sig.routeNumber > -1 && sig.routes[sig.route].repeater)
+                                )
+                                && (!sig.passOcc || sig.trackX == x);
+                        }
+                        else if (mARS)
+                        {
+                            isolating = (sig.trackDir == dir) && (!sig.passOcc || sig.trackX == x);
+                        }
+                        else if (mSwitch)
+                        {
+                            isolating = sig.isolateSwitches;
+                        }
+
+                        if (isolating)
+                        {
+                            // If scanning forward, and there's a joint IN FRONT of current X
+                            if (dir && sig.trackX > x)
+                            {
+                                max_x = std::min(max_x, sig.trackX);
+                                isolateForward = true;
+                            }
+
+                            // If scanning forward, and there's a joint in current X
+                            // This is triggered when traffic light searches for next light from its own X (then
+                            // scan direction is defined by dir)
+                            if (dir && sig.trackX == x)
+                            {
+                                min_x = std::max(min_x, sig.trackX);
+                                isolateBackward = true;
+                            }
+
+                            // If scanning backward, and there's a joint BEHIND current X
+                            if (!dir && sig.trackX < x)
+                            {
+                                min_x = std::max(min_x, sig.trackX);
+                                isolateBackward = true;
+                            }
+
+                            // If scanning backward starting from current X, use dir for guiding scan
+                            if (!dir && sig.trackX == x)
+                            {
+                                max_x = std::max(max_x, sig.trackX);
+                                isolateForward = true;
+                            }
+                        }
                     }
-
-                    // If scanning forward, and there's a joint in current X
-                    // This is triggered when traffic light searches for next light from its own X (then
-                    // scan direction is defined by dir)
-                    if (dir && sig.trackX == x)
+                    catch (std::out_of_range& e)
                     {
-                        min_x = std::max(min_x, sig.trackX);
-                        isolateBackward = true;
-                    }
-
-                    // If scanning backward, and there's a joint BEHIND current X
-                    if (!dir && sig.trackX < x)
-                    {
-                        min_x = std::max(min_x, sig.trackX);
-                        isolateBackward = true;
-                    }
-
-                    // If scanning backward starting from current X, use dir for guiding scan
-                    if (!dir && sig.trackX == x)
-                    {
-                        max_x = std::max(max_x, sig.trackX);
-                        isolateForward = true;
+                        Warning("ScanTrack: m_Signals: std::out_of_range: %s\n", e.what());
                     }
                 }
             }
-            catch (std::out_of_range& e) {}
         }
-    }
-    // Call function for the determined portion of the node
-    int results = func(hNode, min_x, max_x, data);
-    if (results > 0)
-        return results;
 
-    // First check all the branches, whose positions fall within min_x..max_x
-    if (!node.branches.empty() && !mARS)
-    {
-        for (auto& branch : node.branches)
+        // Call function for the determined portion of the node
+        int results = func(this, hNode, min_x, max_x, data);
+        if (results > 0)
+            return results;
+
+        // First check all the branches, whose positions fall within min_x..max_x
+        if (!node.branches.empty() && !mARS)
         {
-            if (branch.x >= min_x && branch.x <= max_x)
+            for (const auto& branch : node.branches)
             {
-                results = ScanTrack(mode, branch.hNode, func, branch.x, true, pChecked, data);
-                if (results > 0)
-                    return results;
+                if (branch.x >= min_x && branch.x <= max_x)
+                {
+                    stack.push({ branch.hNode, branch.x, true });
+                }
             }
         }
-    }
 
-    // If not isolated, continue scanning forward from the front end of node
-    if ((dir || mSwitch) && (!isolateForward))
-    {
-        results = ScanTrack(mode, node.hNext, func, max_x, true, pChecked, data);
-        if (results > 0)
-            return results;
-    }
+        // If not isolated, continue scanning forward from the front end of node
+        if ((dir || mSwitch) && (!isolateForward))
+        {
+            stack.push({ node.hNext, max_x, true });
+        }
 
-    // If not isolated, continue scanning backward from the rear end of node
-    if ((!dir || mSwitch) && (!isolateBackward))
-    {
-        results = ScanTrack(mode, node.hPrev, func, min_x, false, pChecked, data);
-        if (results > 0)
-            return results;
+        // If not isolated, continue scanning backward from the rear end of node
+        if ((!dir || mSwitch) && (!isolateBackward))
+        {
+            stack.push({ node.hPrev, min_x, false });
+        }
     }
 
     return 0;
@@ -575,7 +584,7 @@ void CRailNetwork::LoadTrack()
             if (!jsonPath.is_array())
                 continue;
 
-            TPath trackPath{ CTrackHandle(pathID) };
+            TPath trackPath{ CTrackHandle( (CTrackHandle::I)pathID) };
             for (size_t nodeID = 0; nodeID < jsonPath.size(); nodeID++)
             {
                 const auto& jsonNode = jsonPath[nodeID];
@@ -807,7 +816,6 @@ void CRailNetwork::PrintStatistics()
 
     ConColorMsg(Color(255, 0, 255, 255), "RailNetwork: %d cells used for spatial lookup\n", cellCount);
     ConColorMsg(Color(255, 0, 255, 255), "RailNetwork: Most nodes in cell: %d, average nodes in cell: %.2f\n", maxn, (float)avgn/(float)cellCount);
-
 }
 
 namespace NearestNodesLUA {
@@ -1009,10 +1017,26 @@ int CRailNetwork::GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA)
     return 1;
 }
 
-static int luaScanTrack(const CTrackHandle& hNode, float minX, float maxX, void* data)
+int CRailNetwork::LuaScanTrackFn(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data)
 {
+    if (rn == nullptr)
+        return 0;
 
-    return 0;
+    GM::ILua* LUA = reinterpret_cast<GM::ILua*>(data);
+    const TNode& node = rn->m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+
+    int top = LUA->Top();
+    LUA->Push(3); // Push function on top
+    LUA->ReferencePush(node.iRef);
+    LUA->PushNumber(minX);
+    LUA->PushNumber(maxX);
+    if (LUA->PCall(3, -1, 0))
+    {
+        LUA->Pop();
+        return 0;
+    }
+
+    return LUA->Top() - top;
 }
 
 int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
@@ -1024,7 +1048,7 @@ int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
     bool dir = LUA->GetBool(5);
 
     CTrackHandle hNode = LUA->GetUserdata(2);
-    if (!hNode.IsValid())
+    if (!hNode.IsValidNodeID())
         return 0;
 
     ScanTrackMode mode;
@@ -1044,7 +1068,7 @@ int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
         break;
     }
 
-    return ScanTrack(mode, hNode, luaScanTrack, x, dir);
+    return ScanTrack(mode, hNode, &LuaScanTrackFn, x, dir, LUA);
 }
 
 int CRailNetwork::ARSJointScan(GarrysMod::Lua::ILuaBase* LUA)
@@ -1115,7 +1139,7 @@ int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
 
             if (jSign.find("Routes") != jSign.end())
             {
-                for (auto r : jSign["Routes"])
+                for (auto& r : jSign["Routes"])
                 {
                     TRoute route;
                     route.name = r.value("RouteName", "");
@@ -1150,8 +1174,6 @@ int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
     sig.handle = hEnt;
     sig.edEntity = &g_pEdictList[entIdx];
     sig.pEntity = sig.edEntity->GetIServerEntity()->GetBaseEntity();
-
-    m_Signals[entIdx] = sig;
     
     // Link signal to node
     TGetPosOnTrackOpt options;
@@ -1189,10 +1211,7 @@ int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
         ConColorMsg(Color(255, 0, 255, 255),
             "RailNetwork: Signal %s don't have first route", sig.name.c_str());
 
-
-   
-
-    
+    m_Signals[entIdx] = sig;    
     LUA->PushBool(true);
     return 1;
 }
@@ -1217,7 +1236,7 @@ int CRailNetwork::SigSetRoute(GarrysMod::Lua::ILuaBase* LUA)
 
         sig.route = routeIdx-1;
     }
-    catch (std::out_of_range& e) {}
+    catch (std::out_of_range&){}
 
     return 0;
 }
