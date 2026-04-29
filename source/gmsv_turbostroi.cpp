@@ -25,7 +25,7 @@ namespace GM = GarrysMod::Lua;
 //------------------------------------------------------------------------------
 std::string g_LibraryFileName;
 bool g_ForceThreadsFinished = false; // For correct unrequire module
-std::atomic<float> g_CurrentTime = 0.0f;
+std::atomic<double> g_CurrentTime = 0.0f;
 unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;
@@ -334,9 +334,9 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 // SourceSDK
 //------------------------------------------------------------------------------
-LUA_FUNCTION_DECLARE( Think_handler )
+DLL_EXPORT LUA_FUNCTION_DECLARE( Think_handler )
 {
-	g_CurrentTime = g_pServerGlobalVars->curtime;
+	g_CurrentTime = *(double*)((char*)g_pServerGlobalVars + 12);
 	g_SharedPrint.PrintAvailable();
 	return 0;
 }

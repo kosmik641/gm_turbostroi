@@ -316,7 +316,7 @@ void CWagon::Think()
 	}
 }
 
-bool CWagon::UpdateCurTime(float t)
+bool CWagon::UpdateCurTime(double t)
 {
 	if (m_ServerCurTime == t) return false;
 	m_ServerCurTime = t;

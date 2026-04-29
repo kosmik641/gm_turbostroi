@@ -64,7 +64,7 @@ public:
 	void Initialize();
 	void Think();
 
-	bool UpdateCurTime(float t);
+	bool UpdateCurTime(double t);
 
 	double CurrentTime();
 	static int CurrentTime(lua_State* L);
@@ -89,7 +89,7 @@ private:
 
 	TLuaData m_Lua{ this };
 	std::chrono::steady_clock::time_point m_StartTime;
-	float m_ServerCurTime = -1.0f;
+	double m_ServerCurTime = -1.0;
 	double m_CurrentTime = -1.0;
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
