@@ -15,7 +15,7 @@
 - `turbostroi_clear_cache` - Очистка кэша загруженных скриптов
 - `turbostroi_clear_print` - Остановка вывода сообщений из турбостроя
 - `turbostroi_disable_cache` - Отключение кэша скриптов (для разработчиков)
-- `turbostroi_main_cores` - Маска соответствия (Affinity mask) для SRCFS
+- `turbostroi_main_cores` - Маска соответствия (Affinity mask) для SRCDS
 - `turbostroi_train_cores` - Маска соответствия (Affinity mask) для потоков поездов
 
 # Установка `lib_turbostroi_v2.lua`
