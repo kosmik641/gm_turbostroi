@@ -227,20 +227,33 @@ bool UnpackLibTurbostroi()
 		return true;
 	}
 
-	CFileSystem_STL& fs = g_FileSystemSTL;
+	// Calc bundled lua CRC
+	CRC32_t crcLua;
+	CRC32_Init(&crcLua);
+	CRC32_ProcessBuffer(&crcLua, g_LibTurbostroiLua, sizeof(g_LibTurbostroiLua));
+	CRC32_Final(&crcLua);
 
+	CFileSystem_STL& fs = g_FileSystemSTL;
 	std::string lib_path = "garrysmod/lua/metrostroi/";
 	std::string lib_name = "lib_turbostroi_v2.lua";
 	std::string lib_fullpath = lib_path + lib_name;
 
-	// Check for update by size
+	// Check for update
 	FileHandle_t f = fs.Open(lib_fullpath.c_str(), "rb");
 	if (f)
 	{
 		auto fSize = fs.Size(f);
+
+		std::unique_ptr<char> buf(new char[fSize]);
+		fs.Read(buf.get(), fSize, f);
 		fs.Close(f);
 
-		if (fSize == sizeof(g_LibTurbostroiLua))
+		CRC32_t crcCurr;
+		CRC32_Init(&crcCurr);
+		CRC32_ProcessBuffer(&crcCurr, buf.get(), fSize);
+		CRC32_Final(&crcCurr);
+
+		if (crcCurr == crcLua)
 		{
 			ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: 'lib_turbostroi_v2.lua' is up to date.\n");
 			return true;
