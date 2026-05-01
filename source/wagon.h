@@ -10,10 +10,10 @@ extern "C"
 
 struct TThreadMsg {
 	int message = 0;
-	const char* system_name;
-	const char* name;
-	double index;
-	double value;
+	const char* system_name = nullptr;
+	const char* name = nullptr;
+	double index = 0.0;
+	double value = 0.0;
 };
 
 struct TTrainSystem {
@@ -82,7 +82,7 @@ public:
 	static int EntIndex(lua_State* L);
 
 	void Finish();
-	bool IsFinished();
+	bool ThreadRunning();
 
 private:
 	CWagon(int idx);
@@ -93,13 +93,15 @@ private:
 	double m_CurrentTime = -1.0;
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
-	bool m_Finished = false;
+	bool m_Finish = false;
+	bool m_ThreadRunning = false;
 	int m_ThinkRef = 0;
 	int m_SystemCount = 0;
 	int m_EntIndex = -1;
 
+	typedef RingBuffer<TThreadMsg, 256> TThreadMsgBuffer;
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
-	RingBuffer<TThreadMsg, 256> m_Thread2Sim, m_Sim2Thread;
+	TThreadMsgBuffer *m_Thread2Sim, *m_Sim2Thread;
 
 	void AddToArray();
 	void RemoveFromArray();

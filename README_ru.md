@@ -3,9 +3,8 @@
   - С использованием `lib_turbostroi_v2.lua`
 - [x] Компиляция под Linux
 - [x] Использовать Think от Source engine вместо своего потока
-- [ ] Стабильная работа на Linux 
-  - не гарантировано, нужно тестировать
-- [ ] Оптимизация
+- [x] Стабильная работа на Linux 
+- [x] Оптимизация
 - [x] Чистка кода
 - [ ] Убрать по максимуму код для части турбостроя из `lib_turbostroi_v2.lua`
   - Позволит отказаться от обязательной установки каких-либо Lua скриптов для работы турбостроя
@@ -25,13 +24,6 @@
 2. Скопируйте `lua` файл в эту папку по пути `lua/metrostroi` *(эти папки надо создать)*
 
 Полный путь должен выглядеть примерно так: `garrysmod/addons/new_turbostroi/lua/metrostroi/lib_turbostroi_v2.lua`.
-
-# Фикс краша `[src/tcmalloc.cc] Attempt to free invalid pointer` (только для Linux)
-1. Удалите `bin/libtcmalloc_minimal.so.4` из папки сервера
-2. Установите `libtcmalloc-minimal4` из пакетного менеджера:
-```
-apt install libtcmalloc-minimal4:i386
-```
 
 # Компиляция под Windows MSVC:
 1. Установите Visual Studio 2015 или новее

@@ -6,7 +6,9 @@
 #include <const.h>
 #include <cstring>
 #include <thread>
+#include <array>
 #include <lua.hpp>
+
 extern "C"
 {
 #include "lj_obj.h"
@@ -45,6 +47,8 @@ CWagon* CWagon::CWagonByIndex(int idx)
 CWagon::CWagon(int idx)
 {
 	m_StartTime = std::chrono::steady_clock::now();
+	m_Thread2Sim = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
+	m_Sim2Thread = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
 
 	// Store entity index and pointer
 	m_EntIndex = idx;
@@ -104,6 +108,9 @@ CWagon::~CWagon()
 	lua_close(m_Lua.L);
 	lj_alloc_destroy(m_Lua.msp);
 	RemoveFromArray();
+
+	std::free(reinterpret_cast<void*>(m_Sim2Thread));
+	std::free(reinterpret_cast<void*>(m_Thread2Sim));
 }
 
 bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -115,7 +122,7 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Sim2Thread.push(tmsg);
+	return m_Sim2Thread->push(tmsg);
 }
 
 int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -126,7 +133,7 @@ int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
 
 TThreadMsg& CWagon::SimRecvMessage()
 {
-	if (m_Thread2Sim.pop(m_Thread2SimMsg))
+	if (m_Thread2Sim->pop(m_Thread2SimMsg))
 		return m_Thread2SimMsg;
 	else
 		return s_EmptyMsg;
@@ -134,7 +141,7 @@ TThreadMsg& CWagon::SimRecvMessage()
 
 int CWagon::SimReadAvailable()
 {
-	return m_Thread2Sim.size();
+	return m_Thread2Sim->size();
 }
 
 bool CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -146,7 +153,7 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Thread2Sim.push(tmsg);
+	return m_Thread2Sim->push(tmsg);
 }
 
 int CWagon::ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -163,7 +170,7 @@ int CWagon::ThreadRecvMessages(lua_State* L)
 
 TThreadMsg& CWagon::ThreadRecvMessage()
 {
-	if (m_Sim2Thread.pop(m_Sim2ThreadMsg))
+	if (m_Sim2Thread->pop(m_Sim2ThreadMsg))
 		return m_Sim2ThreadMsg;
 	else
 		return s_EmptyMsg;
@@ -171,7 +178,7 @@ TThreadMsg& CWagon::ThreadRecvMessage()
 
 int CWagon::ThreadReadAvailable()
 {
-	return m_Sim2Thread.size();
+	return m_Sim2Thread->size();
 }
 
 bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)
@@ -205,12 +212,12 @@ bool CWagon::CheckLibLoaded()
 		
 		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version (");
 		g_SharedPrint.Push(ver);
-		g_SharedPrint.Push("), please update to " TURBOSTROI_VERSION "\n");
+		g_SharedPrint.Push("), please update to " TURBOSTROI_VERSION_PRINT "\n");
 		return false;
 	}
 	else
 	{
-		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version, please update to " TURBOSTROI_VERSION "\n");
+		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version, please update to " TURBOSTROI_VERSION_PRINT "\n");
 		return false;
 	}
 }
@@ -246,6 +253,7 @@ void CWagon::AddLoadSystem(TTrainSystem& sys)
 //------------------------------------------------------------------------------
 void CWagon::SimulationThreadFn()
 {
+	m_ThreadRunning = true;
 	if (SetAffinityMask(CurrentThread(), g_SimThreadGroupAffinity))
 	{
 		std::string str = "[!] Train thread running on CPU";
@@ -271,7 +279,7 @@ void CWagon::SimulationThreadFn()
 	std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
 
 	// Run think
-	while (!g_ForceThreadsFinished && !IsFinished())
+	while (!g_ForceThreadsFinished && !m_Finish)
 	{
 		if (!UpdateCurTime(g_CurrentTime)) // Wait for server update
 		{
@@ -286,7 +294,7 @@ void CWagon::SimulationThreadFn()
 	//Release resources
 	lua_unref(L, m_ThinkRef);
 	g_SharedPrint.Push("[!] Terminating train thread\n");
-	delete this;
+	m_ThreadRunning = false;
 }
 
 void CWagon::Initialize()
@@ -393,13 +401,12 @@ int CWagon::EntIndex(lua_State* L)
 
 void CWagon::Finish()
 {
-	RemoveFromArray();
-    m_Finished = true;
+	m_Finish = true;
 }
 
-bool CWagon::IsFinished()
+bool CWagon::ThreadRunning()
 {
-	return m_Finished;
+	return m_ThreadRunning;
 }
 
 void CWagon::AddToArray()

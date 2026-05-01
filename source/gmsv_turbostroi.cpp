@@ -155,6 +155,12 @@ LUA_FUNCTION( API_DeinitializeTrain )
 	{
 		HookRunTrainEnt(LUA, 1, true);
 		userdata->Finish();
+		while (userdata->ThreadRunning())
+		{
+			std::this_thread::sleep_for(std::chrono::microseconds(500));
+		}
+
+		delete userdata;
 	}
 	
 	return 0;
@@ -455,7 +461,7 @@ GMOD_MODULE_OPEN()
 	LUA->Pop(); // GM::SPECIAL_GLOB
 
 	// Print some information
-	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: [" TURBOSTROI_VERSION "] DLL initialized (built " __DATE__ ")\n");
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: [" TURBOSTROI_VERSION_PRINT "] DLL initialized (built " __DATE__ ")\n");
 	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Running with %i cores\n", g_ProcessorCount);
 
 	if (!g_CurrentTime.is_lock_free())

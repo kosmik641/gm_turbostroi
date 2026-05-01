@@ -13,5 +13,6 @@
 #endif
 
 #define TURBOSTROI_VERSION "v2.7.2"
+#define TURBOSTROI_VERSION_PRINT TURBOSTROI_VERSION ".2"
 
 bool IsWindows11();
