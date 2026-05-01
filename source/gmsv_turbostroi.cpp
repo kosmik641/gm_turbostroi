@@ -126,7 +126,7 @@ LUA_FUNCTION( API_InitializeTrain )
 
 	// Load up all the systems
 	LoadSystem(LUA, userdata, "metrostroi/sh_failsim.lua");
-	for (TTrainSystem sys : g_MetrostroiSystemList)
+	for (const TTrainSystem& sys : g_MetrostroiSystemList)
 	{
 		LoadSystem(LUA, userdata, sys.file_name.c_str());
 	}
