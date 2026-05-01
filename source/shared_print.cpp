@@ -23,7 +23,7 @@ void SharedPrint::PrintAvailable()
 	{
         std::string msg;
         if (m_Queue.pop(msg))
-		    ConColorMsg(Color(255, 0, 255, 255), msg.c_str());
+		    ConColorMsg(Color(255, 0, 255, 255), "%s", msg.c_str());
 	}
 	m_Mutex.unlock();
 }

@@ -77,7 +77,7 @@ int64_t GMOD_FileSize(GarrysMod::Lua::ILuaBase* LUA, const char* fileName, const
                     LUA->Call(2, 1);
                     if (LUA->IsType(-1, GM::Type::Number))
                     {
-                        size = LUA->GetNumber(-1);
+                        size = (int64_t)LUA->GetNumber(-1);
                     }
                 }
             }

@@ -187,7 +187,7 @@ long CFileSystem_STL::GetFileTime(const char* pFileName, const char* pPathID)
         return 0;
 
     auto time = fs::last_write_time(pFileName);
-    return chrono::duration_cast<chrono::seconds>(time.time_since_epoch()).count();
+    return (long)chrono::duration_cast<chrono::seconds>(time.time_since_epoch()).count();
 }
 
 bool CFileSystem_STL::ReadFile(const char* pFileName, const char* pPath, CUtlBuffer& buf, int nMaxBytes, int nStartingByte, FSAllocFunc_t pfnAlloc)
@@ -198,7 +198,7 @@ bool CFileSystem_STL::ReadFile(const char* pFileName, const char* pPath, CUtlBuf
     if (fp == nullptr)
         return false;
 
-    int nBytesToRead = Size(fp);
+    int nBytesToRead = (int)Size(fp);
     if (nMaxBytes > 0)
     {
         nBytesToRead = std::min(nMaxBytes, nBytesToRead);

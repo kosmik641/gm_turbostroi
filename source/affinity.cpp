@@ -187,7 +187,7 @@ bool SetAffinityMask(std::thread::native_handle_type handle, const CPU_SET& grou
 	if (win11API)
 	{
 		size_t groupCount = ((g_ProcessorCount - 1) / (sizeof(KAFFINITY) * 8)) + 1;
-		if (fnSetThreadSelectedCpuSetMasks(handle, (PGROUP_AFFINITY)group.data(), groupCount) == 0)
+		if (fnSetThreadSelectedCpuSetMasks(handle, (PGROUP_AFFINITY)group.data(), (USHORT)groupCount) == 0)
 		{
 			ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Set affinity group failed! (0x%04X)\n", GetLastError());
 			status = false;

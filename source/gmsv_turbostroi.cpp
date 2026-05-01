@@ -76,7 +76,7 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 	return loaded;
 }
 
-inline int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
+inline unsigned int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 {	
 	if (!LUA->IsType(iStackPos, GM::Type::Entity))
 		return 0;
@@ -88,7 +88,7 @@ inline int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 
 LUA_FUNCTION( API_InitializeTrain ) 
 {
-	int idx = GetEntIndex(LUA, 1);
+	unsigned int idx = GetEntIndex(LUA, 1);
 	CWagon* userdata = CWagon::Create(idx);
 	if (userdata == nullptr)
 	{
@@ -225,7 +225,7 @@ LUA_FUNCTION( API_SendMessage )
 		return 1;
 	}
 
-	int message = LUA->CheckNumber(2);
+	int message = (int)LUA->CheckNumber(2);
 	const char* system_name = LUA->CheckString(3);
 	const char* name = LUA->CheckString(4);
 	double index = LUA->CheckNumber(5);
@@ -314,7 +314,7 @@ LUA_FUNCTION( API_SetSimulationFPS )
 	if (FPS == 0)
 		return 0;
 
-	g_ThreadTickrate = (1000000.0 / FPS);
+	g_ThreadTickrate = (unsigned int)(1000000.0 / FPS);
 	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Changed to %d FPS (%.02f ms delay)\n", (int)(FPS + 0.5), g_ThreadTickrate / 1000.0f);
 	return 0;
 }

@@ -38,8 +38,8 @@ struct TLuaData
 
 class CWagon {
 public:
-	static CWagon* Create(int idx); // CWagon factory
-	static CWagon* CWagonByIndex(int idx);
+	static CWagon* Create(unsigned int idx); // CWagon factory
+	static CWagon* CWagonByIndex(unsigned int idx);
 	~CWagon();
 
 	inline static TThreadMsg s_EmptyMsg{ 0 };
@@ -77,15 +77,15 @@ public:
 
 	static int SysTime(lua_State* L);
 
-	void SetEntIndex(int idx);
-	int EntIndex();
+	void SetEntIndex(unsigned int idx);
+	unsigned int EntIndex();
 	static int EntIndex(lua_State* L);
 
 	void Finish();
 	bool ThreadRunning();
 
 private:
-	CWagon(int idx);
+	CWagon(unsigned int idx);
 
 	TLuaData m_Lua{ this };
 	std::chrono::steady_clock::time_point m_StartTime;
@@ -97,7 +97,7 @@ private:
 	bool m_ThreadRunning = false;
 	int m_ThinkRef = 0;
 	int m_SystemCount = 0;
-	int m_EntIndex = -1;
+	unsigned int m_EntIndex = 0;
 
 	typedef RingBuffer<TThreadMsg, 256> TThreadMsgBuffer;
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;

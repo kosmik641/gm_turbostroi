@@ -237,7 +237,7 @@ bool UnpackLibTurbostroi()
 	FileHandle_t f = fs.Open(lib_fullpath.c_str(), "rb");
 	if (f)
 	{
-		unsigned int fSize = fs.Size(f);
+		auto fSize = fs.Size(f);
 		fs.Close(f);
 
 		if (fSize == sizeof(g_LibTurbostroiLua))

@@ -28,7 +28,7 @@ static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 }
 
 
-CWagon* CWagon::Create(int idx)
+CWagon* CWagon::Create(unsigned int idx)
 {
 	if (idx > 0 && idx < g_Wagons.size())
 		return new CWagon(idx);
@@ -36,7 +36,7 @@ CWagon* CWagon::Create(int idx)
 	return nullptr;
 }
 
-CWagon* CWagon::CWagonByIndex(int idx)
+CWagon* CWagon::CWagonByIndex(unsigned int idx)
 {
 	if (idx > 0 && idx < g_Wagons.size()) // 0 is World
 		return g_Wagons[idx];
@@ -44,7 +44,7 @@ CWagon* CWagon::CWagonByIndex(int idx)
 	return nullptr;
 }
 
-CWagon::CWagon(int idx)
+CWagon::CWagon(unsigned int idx)
 {
 	m_StartTime = std::chrono::steady_clock::now();
 	m_Thread2Sim = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
@@ -125,7 +125,7 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	return m_Sim2Thread->push(tmsg);
 }
 
-int CWagon::SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
+int CWagon::SimRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
 {
 	// Not used
 	return 0;
@@ -156,13 +156,13 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	return m_Thread2Sim->push(tmsg);
 }
 
-int CWagon::ThreadRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs)
+int CWagon::ThreadRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
 {
 	// Not used
 	return 0;
 }
 
-int CWagon::ThreadRecvMessages(lua_State* L)
+int CWagon::ThreadRecvMessages([[maybe_unused]] lua_State* L)
 {
 	// Not used
 	return 0;
@@ -382,12 +382,12 @@ int CWagon::SysTime(lua_State* L)
 	return 1;
 }
 
-void CWagon::SetEntIndex(int idx)
+void CWagon::SetEntIndex(unsigned int idx)
 {
 	m_EntIndex = idx;
 }
 
-int CWagon::EntIndex()
+unsigned int CWagon::EntIndex()
 {
 	return m_EntIndex;
 }
