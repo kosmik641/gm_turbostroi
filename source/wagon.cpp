@@ -189,7 +189,7 @@ bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)
 	{
 		std::string err = lua_tostring(L, -1);
 		err += '\n';
-		g_SharedPrint.Push(err.c_str());
+		g_SharedPrint.Push(err);
 		lua_pop(L, 1);
 		return false;
 	}
@@ -305,7 +305,7 @@ void CWagon::Initialize()
 	{
 		std::string err = lua_tostring(L, -1);
 		err += '\n';
-		g_SharedPrint.Push(err.c_str());
+		g_SharedPrint.Push(err);
 		lua_pop(L, 1);
 	}
 }
@@ -319,7 +319,7 @@ void CWagon::Think()
 	{
 		std::string err = lua_tostring(L, -1);
 		err += '\n';
-		g_SharedPrint.Push(err.c_str());
+		g_SharedPrint.Push(err);
 		lua_pop(L, 1);
 	}
 }

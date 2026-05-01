@@ -94,7 +94,7 @@ static std::pair<bool, mp::uint1024_t> ToMPNumber(const char* value)
 		}
 		else if (base == 10 || base == 16)
 		{
-			num.assign(affinityStr.c_str());
+			num.assign(affinityStr);
 		}
 		else
 		{
