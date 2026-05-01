@@ -429,3 +429,6 @@ projects/*
 
 # Develop things
 clean.bat
+
+# lib_turbostroi_lua.h header file
+source/lib_turbostroi_lua.h

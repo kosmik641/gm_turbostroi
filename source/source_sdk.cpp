@@ -4,6 +4,7 @@
 #include "filesystem_stl.h"
 #include "affinity.h"
 #include "shared_print.h"
+#include "lib_turbostroi_lua.h"
 #include <dbg.h>
 #include <color.h>
 #include <utlbuffer.h>
@@ -28,6 +29,7 @@ CFileSystem_STL g_FileSystemSTL; // for save settings in "cfg" folder
 ConVar g_CVarDisableCache("turbostroi_disable_cache", "0", FCVAR_NONE, "Disable scripts cache for development");
 ConVar g_CVarMainCores("turbostroi_main_cores", "0", FCVAR_NONE, "Set affinity mask for main thread", CVarMainCoresCallback);
 ConVar g_CVarTrainCores("turbostroi_train_cores", "0", FCVAR_NONE, "Set affinity mask for train threads", CVarTrainCoresCallback);
+ConVar g_CVarUnpackLib("turbostroi_unpack_lua", "1", FCVAR_NONE, "Enable/disable unpacking lib_turbostroi_v2.lua from DLL");
 ConCommand g_CmdClearCache("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems");
 ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Clear print queue");
 
@@ -131,6 +133,9 @@ static void SaveSettings(IFileSystem* filesystem)
 	if (g_CVarTrainCores.IsRegistered())
 		g_pKVTurbostroi->SetString(g_CVarTrainCores.GetName(), g_CVarTrainCores.GetString());
 
+	if (g_CVarUnpackLib.IsRegistered())
+		g_pKVTurbostroi->SetString(g_CVarUnpackLib.GetName(), g_CVarUnpackLib.GetString());
+
 	// Write to file
 	FileHandle_t f = filesystem->Open("garrysmod/cfg/turbostroi.cfg", "wb", "MOD");
 	if (f != FILESYSTEM_INVALID_HANDLE)
@@ -160,6 +165,7 @@ static bool RegisterConCommands()
 	g_pCVar->RegisterConCommand(&g_CVarDisableCache);
 	g_pCVar->RegisterConCommand(&g_CVarMainCores);
 	g_pCVar->RegisterConCommand(&g_CVarTrainCores);
+	g_pCVar->RegisterConCommand(&g_CVarUnpackLib);
 	g_pCVar->RegisterConCommand(&g_CmdClearCache);
 	g_pCVar->RegisterConCommand(&g_CmdClearPrint);
 	
@@ -177,8 +183,10 @@ static void LoadConVariables(IFileSystem* filesystem)
 	{
 		const char* main_cores = g_pKVTurbostroi->GetString(g_CVarMainCores.GetName(), g_CVarMainCores.GetDefault());
 		const char* train_cores = g_pKVTurbostroi->GetString(g_CVarTrainCores.GetName(), g_CVarTrainCores.GetDefault());
+		const char* unpack_lib = g_pKVTurbostroi->GetString(g_CVarUnpackLib.GetName(), g_CVarUnpackLib.GetDefault());
 		g_CVarMainCores.SetValue(main_cores);
 		g_CVarTrainCores.SetValue(train_cores);
+		g_CVarUnpackLib.SetValue(unpack_lib);
 	}
 	else
 	{
@@ -206,6 +214,66 @@ static void LoadConVariables(IFileSystem* filesystem)
 	g_CVarTrainCores.SetDefault("254");
 }
 
+bool UnpackLibTurbostroi()
+{
+#ifndef LIB_TURBOSTROI_LUA_H
+	static_assert(false, "Please generate 'lib_turbostroi_lua.h' via 'premake5 lualib2header'");
+#endif
+
+	if (!g_CVarUnpackLib.GetBool())
+	{
+		ConColorMsg(Color(0, 127, 255, 255), "Turbostroi: Unpacking bundled 'lib_turbostroi_v2.lua' is disabled. To enable set \"turbostroi_unpack_lua 1\".\n");
+		ConColorMsg(Color(0, 127, 255, 255), "            If you know what are you doing, ignore this.\n");
+		return true;
+	}
+
+	CFileSystem_STL& fs = g_FileSystemSTL;
+
+	std::string lib_path = "garrysmod/lua/metrostroi/";
+	std::string lib_name = "lib_turbostroi_v2.lua";
+	std::string lib_fullpath = lib_path + lib_name;
+
+	// Check for update by size
+	FileHandle_t f = fs.Open(lib_fullpath.c_str(), "rb");
+	if (f)
+	{
+		unsigned int fSize = fs.Size(f);
+		fs.Close(f);
+
+		if (fSize == sizeof(g_LibTurbostroiLua))
+		{
+			ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: 'lib_turbostroi_v2.lua' is up to date.\n");
+			return true;
+		}
+	}
+
+	ConColorMsg(Color(255, 0, 255, 255), "Turbostroi: Unpacking '%s'...", lib_fullpath.c_str());
+	fs.CreateDirHierarchy(lib_path.c_str(), "GAME");
+	f = fs.Open(lib_fullpath.c_str(), "wb");
+	if (!f)
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "\n"
+			                               "            Failed! Please check folder permissions\n"
+										   "            or set \"turbostroi_unpack_lua 0\" and install it manually.\n");
+		return false;
+	}
+
+	auto written = fs.Write(g_LibTurbostroiLua, sizeof(g_LibTurbostroiLua), f);
+	fs.Close(f);
+
+	if (written != sizeof(g_LibTurbostroiLua))
+	{
+		ConColorMsg(Color(255, 0, 0, 255), "\n"
+										   "            Failed! Please check folder permissions\n"
+									       "            or set \"turbostroi_unpack_lua 0\" and install it manually.\n");
+		fs.RemoveFile(lib_fullpath.c_str(), "GAME");
+		return false;
+	}
+
+	ConColorMsg(Color(0, 255, 0, 255), "Unpacked!\n");
+	return true;
+}
+
 bool InitSourceSDK()
 {
 	if (!GetGLuaPointers())
@@ -218,6 +286,9 @@ bool InitSourceSDK()
 		return false;
 
 	LoadConVariables(&g_FileSystemSTL);
+	
+	if (!UnpackLibTurbostroi())
+		return false;
 
 	return true;
 }
@@ -237,6 +308,7 @@ void ShutdownSourceSDK()
 		g_pCVar->UnregisterConCommand(&g_CVarDisableCache);
 		g_pCVar->UnregisterConCommand(&g_CVarMainCores);
 		g_pCVar->UnregisterConCommand(&g_CVarTrainCores);
+		g_pCVar->UnregisterConCommand(&g_CVarUnpackLib);
 		g_pCVar->UnregisterConCommand(&g_CmdClearCache);
 		g_pCVar->UnregisterConCommand(&g_CmdClearPrint);
 		g_pCVar = nullptr;

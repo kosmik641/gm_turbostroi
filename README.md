@@ -9,6 +9,7 @@
 - [x] Code refactoring
 - [ ] Remove turbostroi side from `lib_turbostroi_v2.lua`
   - Going to remove any lua scripts for turbostroi working
+- [x] Autounpacking `lib_turbostroi_v2.lua`
 - [ ] New threading model
 
 # Available commands
@@ -17,20 +18,14 @@
 - `turbostroi_disable_cache` - Disable scripts cache (for developers only)
 - `turbostroi_main_cores` - Affinity mask for SRCDS
 - `turbostroi_train_cores` - Affinity mask for train threads
-
-# Installation of `lib_turbostroi_v2.lua`
-Install `lib_turbostroi_v2.lua` from this repository. It's need to work with module.
-
-1. Create new folder in `garrysmod/addons` (for example `garrysmod/addons/new_turbostroi`)
-2. Place `lua` file to `lua/metrostroi` in your new folder *(you need to create subdirectories)*
-
-Full path should be something like this: `garrysmod/addons/new_turbostroi/lua/metrostroi/lib_turbostroi_v2.lua`.
+- `turbostroi_unpack_lua` - Enable/disable unpacking `lib_turbostroi_v2.lua` from DLL
 
 # Manual for Windows MSVC compile:
 1. Install Visual Studio 2015 or newer
 2. [Get](https://premake.github.io/download) `premake5.exe` for Windows
 3. Place and run `premake5.exe` in this folder:
 ```
+premake5.exe lualib2header
 premake5.exe vs2022
 ```
 - `vs2015` for Visual Studio 2015
@@ -57,6 +52,7 @@ apt install gcc-multilib g++-multilib
 3. Place and run `premake5` in this folder:
 ```
 chmod +x ./premake5
+./premake5 lualib2header
 ./premake5 gmake
 ```
 4. In `external/luajit/src/Makefile` find

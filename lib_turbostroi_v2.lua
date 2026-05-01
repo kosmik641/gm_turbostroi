@@ -1,3 +1,5 @@
+LIB_TURBOSTROI_VERSION = "v2.8.0"
+
 if SERVER and Turbostroi then
 --------------------------------------------------------------------------------
 -- Serverside script
@@ -505,5 +507,3 @@ function Metrostroi.DefineSystem(name)
         return sys
     end
 end
-
-LIB_TURBOSTROI_VERSION = "v2.7.2"

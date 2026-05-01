@@ -1,5 +1,6 @@
 PROJECT_GENERATOR_VERSION = 3
 include("external/garrysmod_common")
+include("gen_lualib2header.lua")
 
 CreateWorkspace({name = "turbostroi", abi_compatible = false})
 	CreateProject({serverside = true})

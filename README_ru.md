@@ -8,6 +8,7 @@
 - [x] Чистка кода
 - [ ] Убрать по максимуму код для части турбостроя из `lib_turbostroi_v2.lua`
   - Позволит отказаться от обязательной установки каких-либо Lua скриптов для работы турбостроя
+- [x] Автораспаковка `lib_turbostroi_v2.lua`
 - [ ] Новая модель многопоточности
 
 # Доступные команды
@@ -16,20 +17,14 @@
 - `turbostroi_disable_cache` - Отключение кэша скриптов (для разработчиков)
 - `turbostroi_main_cores` - Маска соответствия (Affinity mask) для SRCDS
 - `turbostroi_train_cores` - Маска соответствия (Affinity mask) для потоков поездов
-
-# Установка `lib_turbostroi_v2.lua`
-Установите `lib_turbostroi_v2.lua` из этого репозитория. Он необходим для работы.
-
-1. Создайте новую папку в `garrysmod/addons` (например `garrysmod/addons/new_turbostroi`)
-2. Скопируйте `lua` файл в эту папку по пути `lua/metrostroi` *(эти папки надо создать)*
-
-Полный путь должен выглядеть примерно так: `garrysmod/addons/new_turbostroi/lua/metrostroi/lib_turbostroi_v2.lua`.
+- `turbostroi_unpack_lua` - Включение или отключение распаковки `lib_turbostroi_v2.lua` из библиотеки
 
 # Компиляция под Windows MSVC:
 1. Установите Visual Studio 2015 или новее
 2. [Скачайте](https://premake.github.io/download) `premake5.exe` для Windows
 3. Скопируйте и запустите `premake5.exe` в папке с этим репозиторием:
 ```
+premake5.exe lualib2header
 premake5.exe vs2022
 ```
 - `vs2015` для Visual Studio 2015
@@ -56,6 +51,7 @@ apt install gcc-multilib g++-multilib
 3. Скопируйте и запустите `premake5` в папке с этим репозиторием:
 ```
 chmod +x ./premake5
+./premake5 lualib2header
 ./premake5 gmake
 ```
 4. В файле `external/luajit/src/Makefile` найдите строчку

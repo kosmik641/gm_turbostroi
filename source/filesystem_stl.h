@@ -32,6 +32,9 @@ public:
 	virtual bool			WriteFile(const char* pFileName, const char* pPath, CUtlBuffer& buf);
 	virtual bool			UnzipFile(const char* pFileName, const char* pPath, const char* pDestination);
 
+	virtual void			RemoveFile(char const* path, const char* pathID) override;
+	virtual void			CreateDirHierarchy(const char* path, const char* pathID) override;
+
 	// Methods redefined for KeyValues::LoadFromFile
 	virtual int				ReadEx(void* pOutput, int sizeDest, int size, FileHandle_t file) override;
 

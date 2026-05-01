@@ -237,6 +237,54 @@ bool CFileSystem_STL::UnzipFile(const char* pFileName, const char* pPath, const 
     return false;
 }
 
+void CFileSystem_STL::RemoveFile(char const* path, const char* pathID)
+{
+    fs::path absolutePath = path;
+    try
+    {
+        absolutePath = fs::absolute(path).lexically_normal();
+    }
+    catch (const std::exception& e)
+    {
+        Error("CFileSystem_STL::RemoveFile(): Fail to make absolute path from %s (%s)\n", path, e.what());
+        return;
+    }
+
+    try
+    {
+        fs::remove(absolutePath);
+    }
+    catch (const std::exception& e)
+    {
+        Error("CFileSystem_STL::RemoveFile(): Fail to remove %s (%s)\n", absolutePath.string().c_str(), e.what());
+        return;
+    }
+}
+
+void CFileSystem_STL::CreateDirHierarchy(const char* path, const char* pathID)
+{
+    fs::path absolutePath = path;
+    try
+    {
+        absolutePath = fs::absolute(path).lexically_normal();
+    }
+    catch (const std::exception& e)
+    {
+        Error("CFileSystem_STL::CreateDirHierarchy(): Fail to make absolute path from %s (%s)\n", path, e.what());
+        return;
+    }
+
+    try
+    {
+        fs::create_directory(absolutePath);
+    }
+    catch (const std::exception& e)
+    {
+        Error("CFileSystem_STL::CreateDirHierarchy(): Fail to create directory %s (%s)\n", absolutePath.string().c_str(), e.what());
+        return;
+    }
+}
+
 int CFileSystem_STL::ReadEx(void* pOutput, int sizeDest, int size, FileHandle_t file)
 {
     if (file == nullptr) return 0;
