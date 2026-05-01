@@ -25,7 +25,7 @@ namespace GM = GarrysMod::Lua;
 //------------------------------------------------------------------------------
 std::string g_LibraryFileName;
 bool g_ForceThreadsFinished = false; // For correct unrequire module
-std::atomic<double> g_CurrentTime = 0.0;
+std::atomic<double> g_CurrentTime{ 0.0 };
 unsigned int g_ThreadTickrate = 10000; // [mcs] (10ms)
 std::vector<TTrainSystem> g_MetrostroiSystemList;
 std::queue<TTrainSystem> g_LoadSystemList;

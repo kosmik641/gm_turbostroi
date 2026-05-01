@@ -6,6 +6,7 @@
 #include <const.h>
 #include <cstring>
 #include <thread>
+#include <array>
 #include <lua.hpp>
 extern "C"
 {

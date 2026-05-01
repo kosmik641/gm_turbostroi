@@ -37,7 +37,7 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 
 		-- Linux GCC
 		filter("system:linux")
-			links("dl")
+			links("dl", "stdc++fs")
 			linkoptions("-pthread")
 			
 		filter({"system:linux", "architecture:x86"})
