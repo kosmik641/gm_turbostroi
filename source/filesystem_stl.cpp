@@ -1,10 +1,10 @@
 #include "filesystem_stl.h"
 
 #include <fstream>
-#include <filesystem>
+#include <experimental/filesystem>
 #include <utlbuffer.h>
 
-namespace fs = std::filesystem;
+namespace fs = std::experimental::filesystem;
 namespace chrono = std::chrono;
 
 int CFileSystem_STL::Read(void* pOutput, int size, FileHandle_t file)
@@ -30,7 +30,7 @@ FileHandle_t CFileSystem_STL::Open(const char* pFileName, const char* pOptions, 
     fs::path absolutePath = pFileName;
     try
     {
-        absolutePath = fs::absolute(pFileName).lexically_normal();
+        absolutePath = fs::absolute(pFileName); // .lexically_normal();
     }
     catch (const std::exception& e)
     {

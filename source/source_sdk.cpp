@@ -84,9 +84,12 @@ void ClearPrintQueue(const CCommand& command)
 	g_SharedPrint.ClearPrintQueue();
 }
 
-namespace GarrysMod::Lua
+namespace GarrysMod
 {
-	fn_lua_rawseti lua_rawseti = nullptr;
+	namespace Lua
+	{
+		fn_lua_rawseti lua_rawseti = nullptr;
+	}
 }
 static bool GetGLuaPointers()
 {

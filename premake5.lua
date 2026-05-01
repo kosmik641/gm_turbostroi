@@ -3,6 +3,7 @@ include("external/garrysmod_common")
 
 CreateWorkspace({name = "turbostroi", abi_compatible = false})
 	CreateProject({serverside = true})
+        cppdialect("C++14")
 		IncludeSDKCommon()
 		IncludeSDKTier0()
 		IncludeSDKTier1()
@@ -26,6 +27,7 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 		-- Windows
 		filter("system:windows")
 			links("lua51", "luajit")
+            defines({"_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING"})
 			
 		filter({"system:windows", "architecture:x86"})
 			libdirs("external/luajit/x86")

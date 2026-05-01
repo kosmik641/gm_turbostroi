@@ -432,7 +432,7 @@ extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
 	CWagon* userdata = static_cast<CWagon*>(p);
 
 	if (userdata == nullptr)
-		return CWagon::s_EmptyMsg;
+		return s_EmptyMsg;
 
 	return userdata->ThreadRecvMessage();
 }

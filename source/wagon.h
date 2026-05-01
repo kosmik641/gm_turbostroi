@@ -15,6 +15,7 @@ struct TThreadMsg {
 	double index;
 	double value;
 };
+static TThreadMsg s_EmptyMsg{ 0 };
 
 struct TTrainSystem {
 	TTrainSystem(std::string sysName, std::string sysFileName)
@@ -42,7 +43,6 @@ public:
 	static CWagon* CWagonByIndex(int idx);
 	~CWagon();
 
-	inline static TThreadMsg s_EmptyMsg{ 0 };
 	// Garry's mod side
 	bool SimSendMessage(int message, const char* system_name, const char* name, double index, double value);
 	int SimRecvMessages(std::unique_ptr<TThreadMsg[]>& tmsgs);

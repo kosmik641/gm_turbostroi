@@ -100,16 +100,16 @@ static std::pair<bool, mp::uint1024_t> ToMPNumber(const char* value)
 		{
 			ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Wrong format for train affinity mask!\n"
 				"    Allowed binary, decimal and hexadecimal numbers. (e.g. 0b1011001101, 717, 0x2CD)\n");
-			return std::pair(false, num);
+			return std::pair<bool, mp::uint1024_t>(false, num);
 		}
 	}
 	catch (const std::exception& e)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "Turbostroi: Fail to store affinity mask: %s\n", e.what());
-		return std::pair(false, num);
+		return std::pair<bool, mp::uint1024_t>(false, num);
 	}
 
-	return std::pair(true, num);
+	return std::pair<bool, mp::uint1024_t>(true, num);
 }
 
 bool SetThreadGroup(CPU_SET& group, const char* value)
