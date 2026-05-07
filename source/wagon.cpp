@@ -20,6 +20,9 @@ extern "C"
 // CWagon pointers
 static std::array<CWagon*, MAX_EDICTS> g_Wagons{};
 
+// RunString() flag
+bool g_RunStringEnabled = false;
+
 // Wrapper to LuaJIT allocator
 static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 {
@@ -248,6 +251,41 @@ void CWagon::AddLoadSystem(TTrainSystem& sys)
 	lua_settop(L, 0);
 }
 
+void CWagon::RunString(const char* buf, unsigned int uid)
+{
+	if (!g_RunStringEnabled)
+		return;
+
+	LOCAL_L;
+	static std::string str;
+	
+	str.clear();
+	str += 
+R"======(local _retdata=""
+local print = function(...)
+for k,v in ipairs({...}) do _retdata = _retdata..tostring(v).."\t" end
+    _retdata = _retdata.."\n"
+end
+)======";
+
+	str += buf;
+	str += "\nreturn _retdata";
+
+	m_RunStringMutex.lock();
+	{
+		static std::string _retdata;
+		int load = luaL_loadbuffer(L, str.c_str(), str.size(), nullptr);
+		if (load == 0) lua_pcall(L, 0, 1, 0);
+
+		_retdata.clear();
+		_retdata = lua_tostring(L, -1);
+		lua_pop(L, 1);
+
+		ThreadSendMessage(5, _retdata.c_str(), "", uid, EntIndex());
+	}
+	m_RunStringMutex.unlock();
+}
+
 //------------------------------------------------------------------------------
 // Simulation thread
 //------------------------------------------------------------------------------
@@ -281,12 +319,16 @@ void CWagon::SimulationThreadFn()
 	// Run think
 	while (!g_ForceThreadsFinished && !m_Finish)
 	{
-		if (!UpdateCurTime(g_CurrentTime)) // Wait for server update
+		double curTime = g_CurrentTime.load(std::memory_order_relaxed);
+		if (!UpdateCurTime(curTime)) // Wait for server update
 		{
 			std::this_thread::sleep_for(std::chrono::milliseconds(3));
 			continue;
 		}
+
+		if (g_RunStringEnabled) m_RunStringMutex.lock();
 		Think();
+		if (g_RunStringEnabled) m_RunStringMutex.unlock();
 
 		std::this_thread::sleep_for(std::chrono::microseconds(g_ThreadTickrate));
 	}

@@ -4,6 +4,7 @@
 #include "filesystem_stl.h"
 #include "affinity.h"
 #include "shared_print.h"
+#include "wagon.h"
 #include "lib_turbostroi_lua.h"
 #include <dbg.h>
 #include <color.h>
@@ -32,6 +33,7 @@ ConVar g_CVarTrainCores("turbostroi_train_cores", "0", FCVAR_NONE, "Set affinity
 ConVar g_CVarUnpackLib("turbostroi_unpack_lua", "1", FCVAR_NONE, "Enable/disable unpacking lib_turbostroi_v2.lua from DLL");
 ConCommand g_CmdClearCache("turbostroi_clear_cache", ClearLoadCache, "Clear cache for reload systems");
 ConCommand g_CmdClearPrint("turbostroi_clear_print", ClearPrintQueue, "Clear print queue");
+ConCommand g_CmdDisableRunString("metrostroi_turbostroi_run_disable", RunStringDisable, "Disable 'metrostroi_turbostroi_run'");
 
 //------------------------------------------------------------------------------
 // "turbostroi_main_cores" callback
@@ -84,6 +86,15 @@ void ClearLoadCache(const CCommand& command)
 void ClearPrintQueue(const CCommand& command)
 {
 	g_SharedPrint.ClearPrintQueue();
+}
+
+//------------------------------------------------------------------------------
+// "metrostroi_turbostroi_run_disable" callback
+//------------------------------------------------------------------------------
+void RunStringDisable(const CCommand& command)
+{
+	g_RunStringEnabled = false;
+	ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: 'metrostroi_turbostroi_run' disabled!\n");
 }
 
 namespace GarrysMod::Lua
@@ -168,6 +179,7 @@ static bool RegisterConCommands()
 	g_pCVar->RegisterConCommand(&g_CVarUnpackLib);
 	g_pCVar->RegisterConCommand(&g_CmdClearCache);
 	g_pCVar->RegisterConCommand(&g_CmdClearPrint);
+	g_pCVar->RegisterConCommand(&g_CmdDisableRunString);
 	
 	return true;
 }
@@ -287,6 +299,29 @@ bool UnpackLibTurbostroi()
 	return true;
 }
 
+void CheckRunStringEnabled()
+{
+	FileHandle_t f = g_FileSystemSTL.Open("turbostroi.txt", "rb");
+	if (f == nullptr) return;
+
+	int fSize = g_FileSystemSTL.Size(f);
+
+	std::unique_ptr<char> buf(new char[fSize]());
+	g_FileSystemSTL.Read(buf.get(), fSize, f);
+	g_FileSystemSTL.Close(f);
+
+	if (strncmp(buf.get(), "I'm developer", 13) == 0)
+	{
+		ConColorMsg(Color(255, 0, 0, 255),
+			"!!! ========================================================= !!!\n"
+			"!!!    Be careful! 'metrostroi_turbostroi_run' is enabled,    !!!\n"
+			"!!!              disable it if you don't need it!             !!!\n"
+			"!!! ========================================================= !!!\n");
+		
+		g_RunStringEnabled = true;
+	}
+}
+
 bool InitSourceSDK()
 {
 	if (!GetGLuaPointers())
@@ -302,6 +337,8 @@ bool InitSourceSDK()
 	
 	if (!UnpackLibTurbostroi())
 		return false;
+
+	CheckRunStringEnabled();
 
 	return true;
 }
@@ -324,6 +361,7 @@ void ShutdownSourceSDK()
 		g_pCVar->UnregisterConCommand(&g_CVarUnpackLib);
 		g_pCVar->UnregisterConCommand(&g_CmdClearCache);
 		g_pCVar->UnregisterConCommand(&g_CmdClearPrint);
+		g_pCVar->UnregisterConCommand(&g_CmdDisableRunString);
 		g_pCVar = nullptr;
 	}
 }

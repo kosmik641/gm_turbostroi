@@ -1,4 +1,4 @@
-LIB_TURBOSTROI_VERSION = "v2.8.0"
+LIB_TURBOSTROI_VERSION = "v2.9.0"
 
 if SERVER and Turbostroi then
 --------------------------------------------------------------------------------
@@ -10,6 +10,7 @@ local tsTriggerInput = Turbostroi.TriggerInput
 local tsReadAvailable = Turbostroi.ReadAvailable
 local tsRecvMessage = Turbostroi.RecvMessage
 local tsSendMessage = Turbostroi.SendMessage
+local tsRunString = Turbostroi.RunString
 
 --------------------------------------------------------------------------------
 -- Preccess incoming thread messages
@@ -204,7 +205,7 @@ hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
             return
         end
 
-        tsSendMessage(train, 5, argStr:sub(1,255), argStr:sub(256,511), IsValid(ply) and ply:UserID() or -1, train:EntIndex())
+        tsRunString(train, argStr, IsValid(ply) and ply:UserID() or -1)
     end, nil, "Run lua string in turbostroi train thread.")
 end)
 
@@ -347,13 +348,6 @@ local processMsgTbl = {
     -- Not used
     -----------------------------------
     function(train,system,name,index,value) end,
-
-    -----------------------------------
-    -- lua_runstring in Turbostroi environment
-    -----------------------------------
-    function(train,system,name,index,value)
-        tsRunString(system..name, index, value)
-    end,
 }
 
 --------------------------------------------------------------------------------
@@ -404,30 +398,6 @@ function tsWriteData()
                 end
             end
         end
-    end
-end
-
---------------------------------------------------------------------------------
--- lua_runstring in Turbostroi environment
---------------------------------------------------------------------------------
-function tsRunString(str, userid, tid)
-    local scr = [[
-    local _retdata=""
-    local print = function(...)
-        for k,v in ipairs({...}) do _retdata = _retdata..tostring(v).."\t" end
-        _retdata = _retdata.."\n"
-    end
-    ]]
-    scr = scr..str.."\n"
-    scr = scr.."return _retdata"
-    local data,err = loadstring(scr)
-    if data then
-        local ret = tostring(data()) or "N\\A"
-        if userid == -1 then print(ret) return end
-        tsSendMessage(ud, 5, ret, "", userid, tid)
-    else
-        if userid == -1 then print(err) return end
-        tsSendMessage(ud, 5, tostring(err), "", userid, tid)
     end
 end
 

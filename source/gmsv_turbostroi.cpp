@@ -296,7 +296,22 @@ LUA_FUNCTION( API_RecvMessage )
 	return 5;
 }
 
-LUA_FUNCTION( API_ReadAvailable ) 
+LUA_FUNCTION( API_RunString )
+{
+	if (!g_RunStringEnabled)
+		return 0;
+
+	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (userdata == nullptr)
+		return 0;
+
+	const char* str = LUA->CheckString(2);
+	int uid = (int)LUA->CheckNumber(3);
+	userdata->RunString(str, uid);
+	return 0;
+}
+
+LUA_FUNCTION( API_ReadAvailable )
 {
 	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 
@@ -342,7 +357,8 @@ LUA_FUNCTION( API_StartRailNetwork )
 //------------------------------------------------------------------------------
 LUA_FUNCTION_DECLARE( Think_handler )
 {
-	g_CurrentTime = *(double*)((char*)g_pServerGlobalVars + 12);
+	double curTime = *(double*)((char*)g_pServerGlobalVars + 12);
+	g_CurrentTime.store(curTime, std::memory_order_relaxed);
 	g_SharedPrint.PrintAvailable();
 	return 0;
 }
@@ -439,6 +455,7 @@ GMOD_MODULE_OPEN()
 			PushCFunc(API_SendMessage, "SendMessage");
 			PushCFunc(API_RecvMessages, "RecvMessages");
 			PushCFunc(API_RecvMessage, "RecvMessage");
+			PushCFunc(API_RunString, "RunString");
 
 			PushCFunc(API_LoadSystem, "LoadSystem");
 			PushCFunc(API_RegisterSystem, "RegisterSystem");

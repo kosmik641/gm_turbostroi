@@ -15,3 +15,4 @@ void CVarMainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue
 void CVarTrainCoresCallback(IConVar* var, const char* pOldValue, float flOldValue);
 void ClearLoadCache(const CCommand& command);
 void ClearPrintQueue(const CCommand& command);
+void RunStringDisable(const CCommand& command);
