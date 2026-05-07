@@ -230,7 +230,7 @@ bool UnpackLibTurbostroi()
 	// Calc bundled lua CRC
 	CRC32_t crcLua;
 	CRC32_Init(&crcLua);
-	CRC32_ProcessBuffer(&crcLua, g_LibTurbostroiLua, sizeof(g_LibTurbostroiLua));
+	CRC32_ProcessBuffer(&crcLua, g_LibTurbostroiLua, g_LibTurbostroiLuaSize);
 	CRC32_Final(&crcLua);
 
 	CFileSystem_STL& fs = g_FileSystemSTL;
@@ -244,7 +244,7 @@ bool UnpackLibTurbostroi()
 	{
 		auto fSize = fs.Size(f);
 
-		std::unique_ptr<char> buf(new char[fSize]);
+		std::unique_ptr<char> buf(new char[fSize]());
 		fs.Read(buf.get(), fSize, f);
 		fs.Close(f);
 
@@ -271,10 +271,10 @@ bool UnpackLibTurbostroi()
 		return false;
 	}
 
-	auto written = fs.Write(g_LibTurbostroiLua, sizeof(g_LibTurbostroiLua), f);
+	auto written = fs.Write(g_LibTurbostroiLua, g_LibTurbostroiLuaSize, f);
 	fs.Close(f);
 
-	if (written != sizeof(g_LibTurbostroiLua))
+	if (written != g_LibTurbostroiLuaSize)
 	{
 		ConColorMsg(Color(255, 0, 0, 255), "\n"
 										   "            Failed! Please check folder permissions\n"

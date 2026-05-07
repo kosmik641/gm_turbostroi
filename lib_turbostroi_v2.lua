@@ -204,7 +204,7 @@ hook.Add("MetrostroiLoaded", "Turbostroi_Loaded", function()
             return
         end
 
-        tsSendMessage(train._CWagon, 5, argStr:sub(1,255), argStr:sub(256,511), IsValid(ply) and ply:UserID() or -1, train:EntIndex())
+        tsSendMessage(train, 5, argStr:sub(1,255), argStr:sub(256,511), IsValid(ply) and ply:UserID() or -1, train:EntIndex())
     end, nil, "Run lua string in turbostroi train thread.")
 end)
 
