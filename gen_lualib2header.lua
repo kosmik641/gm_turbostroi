@@ -33,7 +33,7 @@ newaction({
 const char g_LibTurbostroiLua[] =
 %s;
 
-constexpr auto g_LibTurbostroiLuaSize = max(0, sizeof(g_LibTurbostroiLua) - 1);
+constexpr auto g_LibTurbostroiLuaSize = sizeof(g_LibTurbostroiLua) - 1;
 
 #endif // LIB_TURBOSTROI_LUA_H
 ]]
