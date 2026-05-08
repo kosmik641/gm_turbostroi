@@ -19,6 +19,21 @@
 - `turbostroi_main_cores` - Affinity mask for SRCDS
 - `turbostroi_train_cores` - Affinity mask for train threads
 - `turbostroi_unpack_lua` - Enable/disable unpacking `lib_turbostroi_v2.lua` from DLL
+- `metrostroi_turbostroi_run_disable` - Disable command `metrostroi_turbostroi_run`
+
+# `metrostroi_turbostroi_run` command
+This command allows you to run arbitrary Lua code in turbostroi environment. This command is disabled by default.  
+**Be careful! There are no restrictions on code in the Turbostroi Lua environment. Don't enable this command unless you really need it. Use only for debugging on a private server.**  
+For enable you need to create a file named `turbostroi.txt` next to `srcds` with the following content:
+```
+I'm developer
+```
+If you want to disable `metrostroi_turbostroi_run` but keep this file, just enter `metrostroi_turbostroi_run_disable`.  
+Command usage:
+```
+metrostroi_turbostroi_run [Code] // Works only when executed by a player with superadmin rights who is seated in the train.
+metrostroi_turbostroi_run [Entity index] [Code]
+```
 
 # Manual for Windows MSVC compile:
 1. Install Visual Studio 2015 or newer

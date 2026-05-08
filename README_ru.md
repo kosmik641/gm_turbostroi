@@ -18,6 +18,21 @@
 - `turbostroi_main_cores` - Маска соответствия (Affinity mask) для SRCDS
 - `turbostroi_train_cores` - Маска соответствия (Affinity mask) для потоков поездов
 - `turbostroi_unpack_lua` - Включение или отключение распаковки `lib_turbostroi_v2.lua` из библиотеки
+- `metrostroi_turbostroi_run_disable` - Отключение команды `metrostroi_turbostroi_run`
+
+# Команда `metrostroi_turbostroi_run`
+Эта команда позволяет запускать произвольный код на стороне Lua турбостроя. По умолчанию эта команда выключена.  
+**Будьте внимательны! На стороне Lua турбостроя нет никаких ограничений для кода. Не включайте эту команду, если она вам не нужна. Используйте только для отладки и только на приватном сервере.**  
+Для включения необходимо создать файл с названием `turbostroi.txt` рядом с `srcds` со следующим содержимым:
+```
+I'm developer
+```
+Если необходимо отключить `metrostroi_turbostroi_run`, но оставить этот файл, введите `metrostroi_turbostroi_run_disable`.  
+Использование команды:
+```
+metrostroi_turbostroi_run [Код] // Работает только от имени игрока с правами суперадминистратора, который сидит в кресле поезда
+metrostroi_turbostroi_run [Индекс энтити] [Код]
+```
 
 # Компиляция под Windows MSVC:
 1. Установите Visual Studio 2015 или новее
