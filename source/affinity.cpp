@@ -132,7 +132,7 @@ bool SetThreadGroup(CPU_SET& group, const char* value)
 			maskGroups++;
 
 		// Ignore groups greater than CPU count
-		if ((i + 1) * (sizeof(KAFFINITY) * 8) > g_ProcessorCount)
+		if ((i + 1) * sizeof(KAFFINITY) * 8 >= g_ProcessorCount)
 		{
 			size_t lastCPUsCount = (g_ProcessorCount - i * sizeof(KAFFINITY) * 8);
 			size_t lastMask = (1 << lastCPUsCount) - 1;
@@ -204,7 +204,7 @@ bool SetAffinityMask(std::thread::native_handle_type handle, const CPU_SET& grou
 			}
 
 			// Ignore groups greater than CPU count
-			if ((i + 1) * sizeof(KAFFINITY) * 8 > g_ProcessorCount)
+			if ((i + 1) * sizeof(KAFFINITY) * 8 >= g_ProcessorCount)
 				break;
 		}
 	}
