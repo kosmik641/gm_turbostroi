@@ -403,6 +403,16 @@ LUA_FUNCTION(RN_API_SigSetRoute)
 	return g_RailNetwork.SigSetRoute(LUA);
 }
 
+LUA_FUNCTION(RN_API_ARSJointScan)
+{
+	return g_RailNetwork.ARSJointScan(LUA);
+}
+
+LUA_FUNCTION(RN_API_ARSJointScanBack)
+{
+	return g_RailNetwork.ARSJointScanBack(LUA);
+}
+
 // lua_run print(RailNetwork.GetTrackPath(0))
 LUA_FUNCTION(RN_API_GetTrackPath)
 {
@@ -547,8 +557,8 @@ GMOD_MODULE_OPEN()
 			PushCFunc(RN_API_LinkSignalEntity, "LinkSignalEntity");
 			PushCFunc(RN_API_SigSetRoute, "SigSetRoute");
 
-			//PushCFunc(RN_API_ARSJointScan, "ARSJointScan");
-			//PushCFunc(RN_API_ARSJointScanBack, "ARSJointScanBack");
+			PushCFunc(RN_API_ARSJointScan, "ARSJointScan");
+			PushCFunc(RN_API_ARSJointScanBack, "ARSJointScanBack");
 
 			// Railnetwork API
 			PushCFunc(RN_API_NearestNodes, "NearestNodes");
@@ -563,7 +573,7 @@ GMOD_MODULE_OPEN()
 			//PushCFunc(RN_API_GetSignalByName, "GetSignalByName");
 			//PushCFunc(RN_API_GetSwitchByName, "GetSwitchByName");
 			//PushCFunc(RN_API_GetNextTrafficLight, "GetNextTrafficLight");
-			//PushCFunc(RN_API_GetARSJoint, "GetARSJoint");
+			PushCFunc(RN_API_GetARSJoint, "GetARSJoint");
 			//PushCFunc(RN_API_GetTrackSwitches, "GetTrackSwitches");
 			//PushCFunc(RN_API_IsTrackOccupied, "IsTrackOccupied");
 			//PushCFunc(RN_API_PredictTrainPositions, "PredictTrainPositions");

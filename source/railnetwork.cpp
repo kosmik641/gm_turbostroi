@@ -87,21 +87,21 @@ void CRailNetwork::Stop()
     }
     g_Lua->Pop();
 
-    m_Paths.clear();
-    m_SpatialLookup.clear();
-    j_Signs.clear();
-    m_SignalsForNode.clear();
-
     for (int i = 0; i < MAX_EDICTS; i++)
     {
         m_Trains[i].InvalidateTrain();
         m_Signals[i].InvalidateSignal();
     }
+
+    m_Paths.clear();
+    m_SpatialLookup.clear();
+    j_Signs.clear();
+    m_SignalsForNode.clear();
 }
 
 void CRailNetwork::Think()
 {
-    UpdateTrains();
+    UpdateEntities();
 }
 
 void CRailNetwork::AddTrain(CBaseHandle handle)
@@ -231,7 +231,7 @@ std::vector<CRailNetwork::TGetPosOnTrackRes> CRailNetwork::GetPositionOnTrack(co
     auto nearestNodes = NearestNodes(pos);
     for (auto& hNode : nearestNodes)
     {
-        auto& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+        const TNode& node = m_Paths[hNode.PathID()][hNode.NodeID()];
         // Get local coordinate system of a section
         const Vector& forward = node.dir;
         const Vector up{ 0,0,1 };
@@ -307,10 +307,12 @@ struct TScanTrackStackItem
 
 int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode1, fnScanTrack func, float x1, bool dir1, void* data)
 {
+    if (m_Paths.empty())
+        return 0;
+
     bool mLight = (mode == M_Light), mARS = (mode == M_ARS), mSwitch = (mode == M_Switch);
 
     // Stack for recursive calc
-
     std::stack<TScanTrackStackItem> stack;
     stack.push({ hNode1, x1, dir1 });
 
@@ -329,85 +331,75 @@ int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode1, fnScanTrack
         checked[hNode] = true;
 
         // Try to use entire node length by default
-        const TNode& node = m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+        const TNode& node = m_Paths[hNode.PathID()][hNode.NodeID()];
         float min_x = node.x;
         float max_x = min_x + node.length;
 
         // Get range of node which can be actually sensed
         bool isolateForward = false;    // Should scanning continue forward along track
         bool isolateBackward = false;   // Should scanning continue backward along track
-        if (!m_SignalsForNode.empty())
+        if (!node.signals.empty())
         {
-            if (auto nodeSignals = m_SignalsForNode.find(hNode); nodeSignals != m_SignalsForNode.end())
+            for (const auto& pSig : node.signals)
             {
-                for (const auto& sigItem : nodeSignals->second)
+                const TSignal& sig = *pSig;
+
+                bool isolating = false;
+                if (mLight)
                 {
-                    try
+                    isolating = (
+                        (sig.trackDir == dir && !sig.routes[sig.route].repeater)
+                        || (sig.trackDir == dir && sig.routes[sig.route].repeater && sig.routeNumber == 9)
+                        || (sig.routeNumber > -1 && sig.routes[sig.route].repeater)
+                        )
+                        && (!sig.passOcc || sig.trackX == x);
+                }
+                else if (mARS)
+                {
+                    isolating = (sig.trackDir == dir) && (!sig.passOcc || sig.trackX == x);
+                }
+                else if (mSwitch)
+                {
+                    isolating = sig.isolateSwitches;
+                }
+
+                if (isolating)
+                {
+                    // If scanning forward, and there's a joint IN FRONT of current X
+                    if (dir && sig.trackX > x)
                     {
-                        const TSignal& sig = m_Signals.at(sigItem.GetEntryIndex());
-                        bool isolating = false;
-
-                        if (mLight)
-                        {
-                            isolating = (
-                                (sig.trackDir == dir && !sig.routes[sig.route].repeater)
-                                || (sig.trackDir == dir && sig.routes[sig.route].repeater && sig.routeNumber == 9)
-                                || (sig.routeNumber > -1 && sig.routes[sig.route].repeater)
-                                )
-                                && (!sig.passOcc || sig.trackX == x);
-                        }
-                        else if (mARS)
-                        {
-                            isolating = (sig.trackDir == dir) && (!sig.passOcc || sig.trackX == x);
-                        }
-                        else if (mSwitch)
-                        {
-                            isolating = sig.isolateSwitches;
-                        }
-
-                        if (isolating)
-                        {
-                            // If scanning forward, and there's a joint IN FRONT of current X
-                            if (dir && sig.trackX > x)
-                            {
-                                max_x = std::min(max_x, sig.trackX);
-                                isolateForward = true;
-                            }
-
-                            // If scanning forward, and there's a joint in current X
-                            // This is triggered when traffic light searches for next light from its own X (then
-                            // scan direction is defined by dir)
-                            if (dir && sig.trackX == x)
-                            {
-                                min_x = std::max(min_x, sig.trackX);
-                                isolateBackward = true;
-                            }
-
-                            // If scanning backward, and there's a joint BEHIND current X
-                            if (!dir && sig.trackX < x)
-                            {
-                                min_x = std::max(min_x, sig.trackX);
-                                isolateBackward = true;
-                            }
-
-                            // If scanning backward starting from current X, use dir for guiding scan
-                            if (!dir && sig.trackX == x)
-                            {
-                                max_x = std::max(max_x, sig.trackX);
-                                isolateForward = true;
-                            }
-                        }
+                        max_x = std::min(max_x, sig.trackX);
+                        isolateForward = true;
                     }
-                    catch (std::out_of_range& e)
+
+                    // If scanning forward, and there's a joint in current X
+                    // This is triggered when traffic light searches for next light from its own X (then
+                    // scan direction is defined by dir)
+                    if (dir && sig.trackX == x)
                     {
-                        Warning("ScanTrack: m_Signals: std::out_of_range: %s\n", e.what());
+                        min_x = std::max(min_x, sig.trackX);
+                        isolateBackward = true;
+                    }
+
+                    // If scanning backward, and there's a joint BEHIND current X
+                    if (!dir && sig.trackX < x)
+                    {
+                        min_x = std::max(min_x, sig.trackX);
+                        isolateBackward = true;
+                    }
+
+                    // If scanning backward starting from current X, use dir for guiding scan
+                    if (!dir && sig.trackX == x)
+                    {
+                        max_x = std::max(max_x, sig.trackX);
+                        isolateForward = true;
                     }
                 }
             }
         }
 
         // Call function for the determined portion of the node
-        int results = func(this, hNode, min_x, max_x, data);
+        int results = func(*this, hNode, min_x, max_x, data);
         if (results > 0)
             return results;
 
@@ -437,6 +429,56 @@ int CRailNetwork::ScanTrack(ScanTrackMode mode, CTrackHandle hNode1, fnScanTrack
     }
 
     return 0;
+}
+
+int CRailNetwork::ARSJointScan(const CTrackHandle& hNode, float minX, float maxX, void* data)
+{
+    return 0;
+}
+
+int CRailNetwork::ARSJointScanBack(const CTrackHandle& hNode, float minX, float maxX, void* data)
+{
+    return 0;
+}
+
+void CRailNetwork::GetARSJoint(CTrackHandle node, float x, bool dir, CBaseHandle* train, CBaseHandle* forw, CBaseHandle* back)
+{
+    if (train)
+    {
+        if (forw)
+            ScanTrack(M_ARS, node, CRailNetwork::ARSJointScan, x, dir, forw);
+
+        if (back)
+            ScanTrack(M_ARS, node, CRailNetwork::ARSJointScanBack, x, dir, back);
+    }
+    else
+    {
+        if (forw)
+            ScanTrack(M_ARS, node, CRailNetwork::ARSJointScan, x, dir, forw);
+    }
+}
+
+
+int CRailNetwork::IsTrackOccuppiedScan(const CTrackHandle& hNode, float minX, float maxX, void* data)
+{
+    TTrackOccupiedData* ret = reinterpret_cast<TTrackOccupiedData*>(data);
+
+    //const TNode& node = hNode()
+
+    
+
+    return 0;
+}
+
+bool CRailNetwork::IsTrackOccupied(CTrackHandle hNode, float x, bool dir, ScanTrackMode mode, CBaseHandle* occupiedBy, CBaseHandle* occupiedByNow)
+{
+    if (!hNode.IsValidNodeID())
+        return false;
+
+    TTrackOccupiedData data;
+    ScanTrack(mode, hNode, &CRailNetwork::IsTrackOccuppiedScan, x, dir, &data);
+
+    return data.isOcc;
 }
 
 void CRailNetwork::GetBogeys(TTrain& train)
@@ -519,7 +561,107 @@ void CRailNetwork::GetBogeys(TTrain& train)
     g_Lua->Pop(g_Lua->Top() - top);
 }
 
-void CRailNetwork::UpdateTrains()
+void CRailNetwork::UpdateTrainPosition(TTrain& train)
+{
+    if (train.iNeedFindBogeys > 0) // Wait for find bogeys
+        return;
+
+    if (train.bFrontBogey || train.bRearBogey)
+    {
+        if (train.bFrontBogey)
+        {
+            CTrackHandle& hNode = train.hNodeFB;
+
+            Vector bogeyWPos;
+            entLocalToWorld(train.pEntity, train.lposFrontBogey, bogeyWPos);
+
+            auto pos = GetPositionOnTrack(bogeyWPos, train.ang);
+            if (pos.size() > 0)
+            {
+                const auto& pos0 = pos[0];
+                if (hNode != pos0.hNode1)
+                {
+                    if (hNode.IsValidNodeID()) m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                    m_Paths[pos0.hNode1.PathID()][pos0.hNode1.NodeID()].trains.insert(&train);
+                    hNode = pos0.hNode1;
+                    train.nodeX_FB = pos0.pos.x;
+
+                    Msg("Store train[%d].FrontBogey to node %d_%d.%f (angle: %f)\n", train.edEntity->m_EdictIndex, hNode.PathID(), hNode.NodeID(), pos0.pos.x, pos[0].angle);
+                }
+            }
+            else
+            {
+                if (hNode.IsValidNodeID())
+                {
+                    Msg("Remove train[%d].FrontBogey from node %d_%d\n", train.edEntity->m_EdictIndex, hNode.PathID(), hNode.NodeID());
+                    m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                    hNode.Invalidate();
+                }
+            }
+        }
+
+        if (train.bRearBogey)
+        {
+            CTrackHandle& hNode = train.hNodeRB;
+
+            Vector bogeyWPos;
+            entLocalToWorld(train.pEntity, train.lposRearBogey, bogeyWPos);
+
+            auto pos = GetPositionOnTrack(bogeyWPos, train.ang + QAngle(0,180,0));
+            if (pos.size() > 0)
+            {
+                const auto& pos0 = pos[0];
+                if (hNode != pos0.hNode1)
+                {
+                    if (hNode.IsValidNodeID()) m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                    m_Paths[pos0.hNode1.PathID()][pos0.hNode1.NodeID()].trains.insert(&train);
+                    hNode = pos0.hNode1;
+                    train.nodeX_RB = pos0.pos.x;
+
+                    Msg("Store train[%d].RearBogey to node %d_%d.%f (angle: %f)\n", train.edEntity->m_EdictIndex, hNode.PathID(), hNode.NodeID(), pos0.pos.x, pos[0].angle);
+                }
+            }
+            else
+            {
+                if (hNode.IsValidNodeID())
+                {
+                    m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                    hNode.Invalidate();
+                }
+            }
+        }
+    }
+    else
+    {
+        CTrackHandle& hNode = train.hNode;
+        auto pos = GetPositionOnTrack(train.pos, train.ang);
+        if (pos.size() > 0)
+        {
+            const auto& pos0 = pos[0];
+            // Clear train from node and node from train
+            if (hNode != pos0.hNode1)
+            {
+                if (hNode.IsValidNodeID()) m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                m_Paths[pos0.hNode1.PathID()][pos0.hNode1.NodeID()].trains.insert(&train);
+                hNode = pos0.hNode1;
+
+                Msg("Store train[%d] to node %d_%d.%f (angle: %f)\n", train.edEntity->m_EdictIndex, hNode.PathID(), hNode.NodeID(), pos0.pos.x, pos[0].angle);
+            }
+        }
+        else
+        {
+            // Remove train if position not found
+            if (hNode.IsValidNodeID())
+            {
+                Msg("Remove train[%d] from node %d_%d\n", train.edEntity->m_EdictIndex, hNode.PathID(), hNode.NodeID());
+                m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(&train);
+                hNode.Invalidate();
+            }
+        }
+    }
+}
+
+void CRailNetwork::UpdateEntities()
 {
     if (!m_Initialized) return;
 
@@ -533,7 +675,7 @@ void CRailNetwork::UpdateTrains()
         // Invalidate edicts
         if (!UTIL_IsValidEdict(train.edEntity))
         {
-            //ConMsg("CRailNetwork::UpdateTrains(): Invalidate train [%d]!\n", i);
+            //ConMsg("CRailNetwork::UpdateEntities(): Invalidate train [%d]!\n", i);
             train.InvalidateTrain();
             continue;
         }
@@ -546,6 +688,8 @@ void CRailNetwork::UpdateTrains()
         }
 
         train.pos = entGetLocalOrigin(train.pEntity);
+        train.ang = entGetLocalAngles(train.pEntity);
+        UpdateTrainPosition(train);
     }
 }
 
@@ -653,7 +797,7 @@ void CRailNetwork::LoadTrack()
         if (pos1.size() > 0)
         {
             CTrackHandle hJoin1 = pos1[0].hNode1;
-            TNode& join1 = m_Paths[hJoin1.PathID()].nodes[hJoin1.NodeID()];
+            TNode& join1 = m_Paths[hJoin1.PathID()][hJoin1.NodeID()];
 
             //Msg("\tjoin1(%d).branches = {x=%.03f  id=%d}\n", join1.id.NodeID() + 1, pos1[0].pos.x, nodeFirst.id.NodeID() + 1);
             //Msg("\tnode1(%d).branches = {x=%.03f  id=%d}\n", nodeFirst.id.NodeID() + 1, nodeFirst.x, join1.id.NodeID() + 1);
@@ -665,7 +809,7 @@ void CRailNetwork::LoadTrack()
         if (pos2.size() > 0)
         {
             CTrackHandle hJoin2 = pos2[0].hNode1;
-            auto& join2 = m_Paths[hJoin2.PathID()].nodes[hJoin2.NodeID()];
+            auto& join2 = m_Paths[hJoin2.PathID()][hJoin2.NodeID()];
 
             //Msg("\tjoin2(%d).branches = {x=%.03f  id=%d}\n", join2.id.NodeID() + 1, pos2[0].pos.x, nodeLast.id.NodeID() + 1);
             //Msg("\tnode2(%d).branches = {x=%.03f  id=%d}\n", nodeLast.id.NodeID() + 1, nodeLast.x, join2.id.NodeID() + 1);
@@ -748,7 +892,7 @@ CRailNetwork::TGetTrackPosRes CRailNetwork::GetTrackPosition(const TPath& path, 
         if (node.hNext.NodeID() == CTrackHandle::INVALID_NODE_ID)
             break;
 
-        auto& nextNode = path.nodes[node.hNext.NodeID()];
+        auto& nextNode = path[node.hNext.NodeID()];
         if (node.x < x && x < nextNode.x)
         {
             const Vector& dir1 = node.dir;
@@ -834,7 +978,7 @@ int CRailNetwork::LUA_NearestNodes__call(lua_State* L) // (for generator)
         return 1;
     }
     auto hNode = nodes[i++];
-    auto& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+    auto& node = g_RailNetwork.m_Paths[hNode.PathID()][hNode.NodeID()];
 
     LUA->PushNumber(hNode.NodeID() + 1);
     LUA->ReferencePush(node.iRef);
@@ -924,13 +1068,13 @@ int CRailNetwork::GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA)
         {
             LUA->CreateTable();
             {
-                auto& node1 = m_Paths[res.hNode1.PathID()].nodes[res.hNode1.NodeID()];
+                auto& node1 = m_Paths[res.hNode1.PathID()][res.hNode1.NodeID()];
                 LUA->ReferencePush(node1.iRef);
                 LUA->SetField(-2, "node1");
 
                 if (res.hNode2.IsValidNodeID())
                 {
-                    auto& node2 = m_Paths[res.hNode1.PathID()].nodes[res.hNode1.NodeID()];
+                    auto& node2 = m_Paths[res.hNode1.PathID()][res.hNode1.NodeID()];
                     LUA->ReferencePush(node2.iRef);
                     LUA->SetField(-2, "node2");
                 }
@@ -981,7 +1125,7 @@ int CRailNetwork::GetTrackPosition(GarrysMod::Lua::ILuaBase* LUA)
     if (!res.hNode.IsValidNodeID())
         return 0;
 
-    auto& node = m_Paths[res.hNode.PathID()].nodes[res.hNode.NodeID()];
+    auto& node = m_Paths[res.hNode.PathID()][res.hNode.NodeID()];
 
     LUA->PushVector(res.pos);
     LUA->PushVector(res.ang);
@@ -1017,13 +1161,10 @@ int CRailNetwork::GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA)
     return 1;
 }
 
-int CRailNetwork::LuaScanTrackFn(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data)
+int CRailNetwork::LuaScanTrackFn(const CTrackHandle& hNode, float minX, float maxX, void* data)
 {
-    if (rn == nullptr)
-        return 0;
-
     GM::ILua* LUA = reinterpret_cast<GM::ILua*>(data);
-    const TNode& node = rn->m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+    const TNode& node = m_Paths[hNode.PathID()][hNode.NodeID()];
 
     int top = LUA->Top();
     LUA->Push(3); // Push function on top
@@ -1041,7 +1182,8 @@ int CRailNetwork::LuaScanTrackFn(CRailNetwork* rn, const CTrackHandle& hNode, fl
 
 int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
 {
-    char strMode = LUA->CheckString(1)[0];
+    const char* strMode = LUA->GetString(1);
+    int iMode = LUA->GetNumber(1);
     LUA->CheckType(2, g_TLuaHandleNode);
     LUA->CheckType(3, GM::Type::Function);
     float x = LUA->CheckNumber(4);
@@ -1052,14 +1194,17 @@ int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
         return 0;
 
     ScanTrackMode mode;
-    switch (strMode)
+    switch (strMode ? strMode[0] : iMode)
     {
+    case 1:
     case 'l':
         mode = M_Light;
         break;
+    case 2:
     case 'a':
         mode = M_ARS;
         break;
+    case 3:
     case 's':
         mode = M_Switch;
         break;
@@ -1068,11 +1213,17 @@ int CRailNetwork::ScanTrack(GarrysMod::Lua::ILuaBase* LUA)
         break;
     }
 
-    return ScanTrack(mode, hNode, &LuaScanTrackFn, x, dir, LUA);
+    return ScanTrack(mode, hNode, CRailNetwork::LuaScanTrackFn, x, dir, LUA);
+}
+
+int CRailNetwork::GetARSJoint(GarrysMod::Lua::ILuaBase* LUA)
+{
+    return 0;
 }
 
 int CRailNetwork::ARSJointScan(GarrysMod::Lua::ILuaBase* LUA)
 {
+
     return 0;
 }
 
@@ -1185,7 +1336,6 @@ int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
     if (pos.size() > 0)
     {
         // A signal belongs only to a single track
-        m_SignalsForNode[pos[0].hNode1].push_back(sig.handle);
         sig.node = pos[0].hNode1;
         sig.trackX = pos[0].pos.x;
         if (pos2.size() > 0)
@@ -1211,7 +1361,14 @@ int CRailNetwork::LinkSignalEntity(GarrysMod::Lua::ILuaBase* LUA)
         ConColorMsg(Color(255, 0, 255, 255),
             "RailNetwork: Signal %s don't have first route", sig.name.c_str());
 
-    m_Signals[entIdx] = sig;    
+    m_Signals[entIdx] = sig;
+    if (sig.node.IsValidNodeID())
+    {
+        TNode& node = m_Paths[sig.node.PathID()][sig.node.NodeID()];
+        node.signals.insert(&m_Signals[entIdx]);
+        m_SignalsForNode[sig.node].push_back(&m_Signals[entIdx]);
+    }
+    
     LUA->PushBool(true);
     return 1;
 }
@@ -1347,7 +1504,7 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
         return 0;
 
     const char* id = LUA->GetString(2);
-    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()][hNode.NodeID()];
     
     // Compare in decending calling times order
     // node.branches
@@ -1368,7 +1525,7 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
                 LUA->PushNumber(branch.x);
                 GM::lua_rawseti(LUA->GetState(), -2, 1);
 
-                auto& brNode = g_RailNetwork.m_Paths[branch.hNode.PathID()].nodes[branch.hNode.NodeID()];
+                auto& brNode = g_RailNetwork.m_Paths[branch.hNode.PathID()][branch.hNode.NodeID()];
                 LUA->ReferencePush(brNode.iRef);
                 GM::lua_rawseti(LUA->GetState(), -2, 2);
             }
@@ -1399,7 +1556,7 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
         if (!hNextNode.IsValidNodeID())
             return 0;
 
-        auto& nextNode = g_RailNetwork.m_Paths[hNextNode.PathID()].nodes[hNextNode.NodeID()];
+        auto& nextNode = g_RailNetwork.m_Paths[hNextNode.PathID()][hNextNode.NodeID()];
         LUA->ReferencePush(nextNode.iRef);
         return 1;
     }
@@ -1411,7 +1568,7 @@ int CRailNetwork::LUA_RNNode__index(lua_State* L)
         if (!hPrevNode.IsValidNodeID())
             return 0;
 
-        auto& prevNode = g_RailNetwork.m_Paths[hPrevNode.PathID()].nodes[hPrevNode.NodeID()];
+        auto& prevNode = g_RailNetwork.m_Paths[hPrevNode.PathID()][hPrevNode.NodeID()];
         LUA->ReferencePush(prevNode.iRef);
         return 1;
     }
@@ -1487,7 +1644,7 @@ int CRailNetwork::LUA_RNNode__tostring(lua_State* L)
         return 1;
     }
 
-    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()].nodes[hNode.NodeID()];
+    const TNode& node = g_RailNetwork.m_Paths[hNode.PathID()][hNode.NodeID()];
 
     char buf[128]{};
     sprintf_s(buf, sizeof(buf), "TrackNode [%d][%d][%.04f %.04f %.04f][L=%.04f m][p=0x%p]",
@@ -1615,6 +1772,27 @@ CRailNetwork::TPath::~TPath()
     {
         g_Lua->ReferenceFree(iRef);
         iRef = -1;
+    }
+}
+
+// Clear train from node
+void CRailNetwork::TTrain::InvalidateTrain()
+{
+    {
+        InvalidateBase();
+        bFrontBogey = false;
+        bRearBogey = false;
+        iNeedFindBogeys = -1;
+
+        if (hNode.IsValidNodeID())
+            g_RailNetwork.m_Paths[hNode.PathID()][hNode.NodeID()].trains.erase(this);
+
+        if (hNodeFB.IsValidNodeID())
+            g_RailNetwork.m_Paths[hNodeFB.PathID()][hNodeFB.NodeID()].trains.erase(this);
+
+        if (hNodeRB.IsValidNodeID())
+            g_RailNetwork.m_Paths[hNodeRB.PathID()][hNodeRB.NodeID()].trains.erase(this);
+
     }
 }
 

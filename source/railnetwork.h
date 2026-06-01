@@ -4,6 +4,7 @@
 #include <basehandle.h>
 #include <utlmemory.h>
 #include <vector>
+#include <unordered_set>
 #include <unordered_map>
 #include <string>
 #include <nlohmann/json.hpp>
@@ -51,6 +52,7 @@ public:
     inline I PathID() const { return path; }
     inline I NodeID() const { return node; }
     inline CTrackHandle GetPathHandle() const { return path; }
+    inline void Invalidate() { m_Value = INVALID_EHANDLE_INDEX; }
 
     operator int() const { return m_Value; }
     operator void*() const { return reinterpret_cast<void*>(m_Value); }
@@ -60,6 +62,12 @@ public:
     {
         return (m_Value == other.m_Value);
     }
+
+    bool operator !=(const CTrackHandle& other) const noexcept
+    {
+        return (m_Value != other.m_Value);
+    }
+
 private:
     union
     {
@@ -121,6 +129,9 @@ public:
     };
     TGetTrackPosRes GetTrackPosition(int pathID, float x);
 
+    //--------------------------------------
+    // ScanTrack
+    //--------------------------------------
     enum ScanTrackMode
     {
         M_Undefined = 0,
@@ -130,11 +141,37 @@ public:
     };
 
     // Return non zero if found
-    typedef int (*fnScanTrack)(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data);
+    typedef int (*fnScanTrack)(CRailNetwork& rn, const CTrackHandle& hNode, float minX, float maxX, void* data);
     int ScanTrack(ScanTrackMode mode, CTrackHandle hNode, fnScanTrack func, float x, bool dir, void* data = nullptr);
 
-private:
+    //--------------------------------------
+    // GetARSJoint
+    //--------------------------------------
+    int ARSJointScan(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    int ARSJointScanBack(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    static int ARSJointScan(CRailNetwork& rn, const CTrackHandle& hNode, float minX, float maxX, void* data) { return rn.ARSJointScan(hNode, minX, maxX, data); }
+    static int ARSJointScanBack(CRailNetwork& rn, const CTrackHandle& hNode, float minX, float maxX, void* data) { return rn.ARSJointScanBack(hNode, minX, maxX, data); }
+    void GetARSJoint(CTrackHandle node, float x, bool dir, CBaseHandle* train = nullptr, CBaseHandle* forw = nullptr, CBaseHandle* back = nullptr);
 
+
+    //--------------------------------------
+    // IsTrackOccupied
+    //--------------------------------------
+    struct TTrackOccupiedData
+    {
+        std::vector<void*> trains;
+        bool isOcc = false;
+        CBaseHandle* occBy = nullptr;
+        CBaseHandle* occByNow = nullptr;
+    };
+    int IsTrackOccuppiedScan(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    static int IsTrackOccuppiedScan(CRailNetwork& rn, const CTrackHandle& hNode, float minX, float maxX, void* data) { return rn.IsTrackOccuppiedScan(hNode, minX, maxX, data); }
+    bool IsTrackOccupied(CTrackHandle hNode, float x, bool dir, ScanTrackMode mode = M_Light, CBaseHandle* occupiedBy = nullptr, CBaseHandle* occupiedByNow = nullptr);
+
+private:
+    //--------------------------------------
+    // Entity base info
+    //--------------------------------------
     struct TEntBase
     {
         CBaseHandle handle{ INVALID_EHANDLE_INDEX };
@@ -148,24 +185,31 @@ private:
         }
     };
 
+    //--------------------------------------
+    // Train entity
+    //--------------------------------------
     struct TTrain : TEntBase
     {
         Vector pos{ 0,0,0 };
+        QAngle ang{ 0,0,0 };
+        CTrackHandle hNode{};
+        float nodeX = 0.0f;
         Vector lposFrontBogey{ 0,0,0 };
         Vector lposRearBogey{ 0,0,0 };
+        CTrackHandle hNodeFB{};
+        float nodeX_FB = 0.0f;
+        CTrackHandle hNodeRB{};
+        float nodeX_RB = 0.0f;
         bool bFrontBogey = false;
         bool bRearBogey = false;
         int iNeedFindBogeys = -1;
 
-        void InvalidateTrain()
-        {
-            InvalidateBase();
-            bFrontBogey = false;
-            bRearBogey = false;
-            iNeedFindBogeys = -1;
-        }
+        void InvalidateTrain();
     };
 
+    //--------------------------------------
+    // Signal's route
+    //--------------------------------------
     struct TRoute
     {
         std::string name;
@@ -180,6 +224,9 @@ private:
         bool enRou = false;
     };
 
+    //--------------------------------------
+    // Signal entity
+    //--------------------------------------
     struct TSignal : TEntBase
     {
         CTrackHandle node{};
@@ -217,6 +264,9 @@ private:
         }
     };
 
+    //--------------------------------------
+    // Track node
+    //--------------------------------------
     struct TNode
     {
         ~TNode();
@@ -246,9 +296,15 @@ private:
             return true;
         }
 
+        std::unordered_set<TSignal*> signals;
+        std::unordered_set<TTrain*> trains;
+
         int iRef = -1; // TODO: Using CLuaObject?
     };
 
+    //--------------------------------------
+    // Track info
+    //--------------------------------------
     struct TPath
     {
         ~TPath();
@@ -256,10 +312,16 @@ private:
         float length = 0;
         std::vector<TNode> nodes;
 
+        TNode& operator[](const std::vector<TNode>::size_type n) { return nodes[n]; }
+        const TNode& operator[](const std::vector<TNode>::size_type n) const { return nodes[n]; }
+
         int iRef = -1; // TODO: Using CLuaObject?
     };
 
 #pragma pack(push,1)
+    //--------------------------------------
+    // Spacial vector (for chunked search)
+    //--------------------------------------
     struct TSpacialVector
     {
         union
@@ -286,7 +348,8 @@ private:
     static inline TSpacialVector GetSpatialPos(const Vector& pos);
 
     void GetBogeys(TTrain& train);
-    void UpdateTrains();
+    void UpdateTrainPosition(TTrain& train);
+    void UpdateEntities();
 
     void LoadTrack();
     void LoadSigns();
@@ -300,7 +363,7 @@ private:
 
     nlohmann::json j_Signs;
     std::array<TSignal, MAX_EDICTS> m_Signals;
-    std::unordered_map<CTrackHandle::I2, std::vector<CBaseHandle>> m_SignalsForNode;
+    std::unordered_map<CTrackHandle::I2, std::vector<TSignal*>> m_SignalsForNode;
 
     bool m_Initialized = false;
 //--------------------------------------
@@ -311,8 +374,10 @@ public:
     int GetPositionOnTrack(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackPosition(GarrysMod::Lua::ILuaBase* LUA);
     int GetTrackEditorPaths(GarrysMod::Lua::ILuaBase* LUA);
-    static int LuaScanTrackFn(CRailNetwork* rn, const CTrackHandle& hNode, float minX, float maxX, void* data);
+    int LuaScanTrackFn(const CTrackHandle& hNode, float minX, float maxX, void* data);
+    static int LuaScanTrackFn(CRailNetwork& rn, const CTrackHandle& hNode, float minX, float maxX, void* data) { return rn.LuaScanTrackFn(hNode, minX, maxX, data); }
     int ScanTrack(GarrysMod::Lua::ILuaBase* LUA);
+    int GetARSJoint(GarrysMod::Lua::ILuaBase* LUA);
 
     int ARSJointScan(GarrysMod::Lua::ILuaBase* LUA);
     int ARSJointScanBack(GarrysMod::Lua::ILuaBase* LUA);
