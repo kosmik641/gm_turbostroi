@@ -171,16 +171,15 @@ bool SetAffinityMask(std::thread::native_handle_type handle, const CPU_SET& grou
 	static char win11API = -1;
 	if (win11API == -1)
 	{
-		HMODULE kernel32 = LoadLibrary("kernel32.dll");
+		win11API = 0;
+		HMODULE kernel32 = IsWindows11() ? LoadLibrary("kernel32.dll") : nullptr;
 		if (kernel32)
 		{
 			fnSetThreadSelectedCpuSetMasks = (pFnSetThreadSelectedCpuSetMasks)GetProcAddress(kernel32, "SetThreadSelectedCpuSetMasks");
 			if (fnSetThreadSelectedCpuSetMasks)
 				win11API = 1;
-			else
-				win11API = 0;
 		}
-
+		
 		ConColorMsg(Color(0, 255, 0, 255), "Turbostroi: Using WinAPI SetThreadSelectedCpuSetMasks: %s\n", win11API ? "Yes" : "No");
 	}
 
