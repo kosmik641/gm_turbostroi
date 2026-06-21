@@ -1,4 +1,4 @@
-LIB_TURBOSTROI_VERSION = "v2.9.0"
+LIB_TURBOSTROI_VERSION = "v2.10.0"
 
 if SERVER and Turbostroi then
 --------------------------------------------------------------------------------
@@ -17,7 +17,7 @@ local tsRunString = Turbostroi.RunString
 --------------------------------------------------------------------------------
 local processMsgTbl = {
     -----------------------------------
-    -- OutputsList values
+    -- [1] OutputsList values
     -----------------------------------
     function(train,tbl,system,name,index,value)
         local sys = tbl.Systems[system]
@@ -28,7 +28,7 @@ local processMsgTbl = {
     end,
 
     -----------------------------------
-    -- WriteTrainWires values
+    -- [2] WriteTrainWires values
     -----------------------------------
     function(train,tbl,system,name,index,value)
         if not tbl.TrainWireWritersID[index] then tbl.TrainWireWritersID[index] = true end
@@ -37,7 +37,7 @@ local processMsgTbl = {
     end,
 
     -----------------------------------
-    -- TriggerInput for non accelereted system
+    -- [3] TriggerInput for non accelereted system
     -----------------------------------
     function(train,tbl,system,name,index,value)
         local sys = tbl.Systems[system]
@@ -47,14 +47,14 @@ local processMsgTbl = {
     end,
 
     -----------------------------------
-    -- ENT:PlayOnce()
+    -- [4] ENT:PlayOnce()
     -----------------------------------
     function(train,tbl,system,name,index,value)
         tbl.PlayOnce(train,system,name,index,value)
     end,
 
     -----------------------------------
-    -- print() data from lua_runstring in Turbostroi environment
+    -- [5] print() data from lua_runstring in Turbostroi environment
     -----------------------------------
     function(train,tbl,system,name,index,value)
         local ply = Player(index)
@@ -252,6 +252,8 @@ typedef struct {
 int ThreadReadAvailable(void* p);
 TThreadMsg& ThreadRecvMessage(void* p);
 bool ThreadSendMessage(void *p, int message, const char* system_name, const char* name, double index, double value);
+bool ThreadSendMessageIPC(void* p, void* receiver, int message, const char* system_name, const char* name, double index, double value);
+bool ThreadSendMessageIPCIndex(void* p, int ent_index, int message, const char* system_name, const char* name, double index, double value);
 ]]
 
 local TS = ffi.load(LIB_TURBOSTROI_FILENAME)
@@ -260,6 +262,7 @@ print("[!] Train initialized!")
 local tsReadAvailable = TS.ThreadReadAvailable
 local tsRecvMessage = TS.ThreadRecvMessage
 local tsSendMessage = TS.ThreadSendMessage
+local tsSendMessageIPCIndex = TS.ThreadSendMessageIPCIndex
 
 local ud = _CWagon
 --------------------------------------------------------------------------------
@@ -316,38 +319,57 @@ end
 --------------------------------------------------------------------------------
 local processMsgTbl = {
     -----------------------------------
-    -- OutputsList values
+    -- [1] OutputsList values
     -----------------------------------
     function(train,system,name,index,value)
-        if train.Systems[system] then
-            train.Systems[system][name] = value
+        local sys = train.Systems[system]
+        if sys then
+            sys[name] = value
         -- else
         --     print("[TThreadMsg: 1] No system defined: "..system)
         end
     end,
 
     -----------------------------------
-    -- ReadTrainWires values
+    -- [2] ReadTrainWires values
     -----------------------------------
     function(train,system,name,index,value)
         train._WiresR[index] = value
     end,
 
     -----------------------------------
-    -- TriggerInput for accelereted system
+    -- [3] TriggerInput for accelereted system
     -----------------------------------
     function(train,system,name,index,value)
-        if train.Systems[system] then
-            train.Systems[system]:TriggerInput(name,value)
+        local sys = train.Systems[system]
+        if sys then
+            sys:TriggerInput(name,value)
         -- else
         --     print("[TThreadMsg: 3] No system defined: "..system)
         end
     end,
 
     -----------------------------------
-    -- Not used
+    -- [4] Not used
     -----------------------------------
     function(train,system,name,index,value) end,
+    
+    -----------------------------------
+    -- [5] Not used
+    -----------------------------------
+    function(train,system,name,index,value) end,
+    
+    -----------------------------------
+    -- [6] IPC message
+    -----------------------------------
+    function(train,system,name,index,value)
+        local sys = train.Systems[system]
+        if sys then
+            sys:TriggerInputIPC(name,index,value)
+        -- else
+        --     print("[TThreadMsg: 6] No system defined: "..system)
+        end
+    end,
 }
 
 --------------------------------------------------------------------------------
@@ -446,6 +468,10 @@ function TRAIN:LoadSystem(sys_name,name,...)
     -- Save to train
     self[sys_name] = sys
     self.Systems[sys_name] = sys
+end
+
+function TRAIN:TriggerInputIPC(ent_index,system,name,index,value)
+    tsSendMessageIPCIndex(ud,ent_index,6,system,name,index,value)
 end
 
 --------------------------------------------------------------------------------

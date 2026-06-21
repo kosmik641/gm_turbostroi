@@ -476,6 +476,22 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessage(void* p, int message, const 
 	return userdata->ThreadSendMessage(message, system_name, name, index, value);
 }
 
+extern "C" TURBOSTROI_EXPORT bool ThreadSendMessageIPC(void* p, void* receiver, int message, const char* system_name, const char* name, double index, double value)
+{
+	CWagon* userdata1 = static_cast<CWagon*>(p);
+	CWagon* userdata2 = static_cast<CWagon*>(receiver);
+
+	if (userdata1 == nullptr || userdata2 == nullptr)
+		return false;
+
+	return userdata2->SimSendMessage(message, system_name, name, index, value);
+}
+
+extern "C" TURBOSTROI_EXPORT bool ThreadSendMessageIPCIndex(void* p, int ent_index, int message, const char* system_name, const char* name, double index, double value)
+{
+	return ThreadSendMessageIPC(p, CWagon::CWagonByIndex(ent_index), message, system_name, name, index, value);
+}
+
 extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)
 {
 	CWagon* userdata = static_cast<CWagon*>(p);
