@@ -10,7 +10,7 @@ CreateWorkspace({name = "turbostroi", abi_compatible = false})
 
 		externalincludedirs("external/boost/config/include")
 		externalincludedirs("external/boost/multiprecision/include")
-		externalincludedirs("external/luajit/src")
+		externalincludedirs("external/luajit")
 		
 		files({
 			"source/include/**.h",

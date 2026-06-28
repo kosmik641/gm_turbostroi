@@ -7,11 +7,11 @@
 #include <cstring>
 #include <thread>
 #include <array>
-#include <lua.hpp>
+#include <src/lua.hpp>
 
 extern "C"
 {
-#include "lj_obj.h"
+#include <src/lj_obj.h>
 }
 
 #define LOCAL_L lua_State* L = m_Lua.L
@@ -334,7 +334,7 @@ void CWagon::SimulationThreadFn()
 	}
 
 	//Release resources
-	lua_unref(L, m_ThinkRef);
+	luaL_unref(L, LUA_REGISTRYINDEX, m_ThinkRef);
 	g_SharedPrint.Push("[!] Terminating train thread\n");
 	m_ThreadRunning = false;
 }
@@ -355,7 +355,7 @@ void CWagon::Initialize()
 void CWagon::Think()
 {
 	LOCAL_L;
-	lua_getref(L, m_ThinkRef);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, m_ThinkRef);
 	lua_pushnumber(L, m_DeltaTime);
 	if (lua_pcall(L, 1, 0, 0))
 	{

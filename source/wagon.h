@@ -6,7 +6,7 @@
 #include <chrono>
 extern "C"
 {
-#include "lj_alloc.h"
+#include <src/lj_alloc.h>
 }
 
 extern bool g_RunStringEnabled;

@@ -1,5 +1,5 @@
 #include "shared_print.h"
-#include <lua.hpp>
+#include <src/lua.hpp>
 #include <color.h>
 #include <dbg.h>
 
