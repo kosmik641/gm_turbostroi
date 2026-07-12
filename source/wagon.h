@@ -36,14 +36,18 @@ struct TLuaData
 	CWagon* self = nullptr;
 	void* msp = nullptr;
 	lua_State* L = nullptr;
-	PRNGState prng{};
 };
 
 class CWagon {
 public:
-	static CWagon* Create(unsigned int idx); // CWagon factory
-	static CWagon* CWagonByIndex(unsigned int idx);
+	CWagon() = default;
+	static CWagon& Create(unsigned int idx); // CWagon factory
+	static CWagon& CWagonByIndex(unsigned int idx);
 	~CWagon();
+
+	void InitEnv(unsigned int idx);
+	void CloseEnv();
+	bool IsValidEnv() const;
 
 	inline static TThreadMsg s_EmptyMsg{ 0 };
 	// Garry's mod side
@@ -59,56 +63,57 @@ public:
 	TThreadMsg& ThreadRecvMessage();
 	int ThreadReadAvailable();
 
-	bool LoadBuffer(const char* buf, size_t size, const char* filename);
-	bool CheckLibLoaded();
+	bool LoadBuffer(const char* buf, size_t size, const char* filename) const;
+	bool CheckLibLoaded() const;
 	void AddLoadSystem(TTrainSystem& sys);
 	void RunString(const char* buf, unsigned int uid);
 
 	void SimulationThreadFn();
-	void Initialize();
-	void Think();
+	void Initialize() const;
+	void Think() const;
 
 	bool UpdateCurTime(double t);
 
-	double CurrentTime();
+	double CurrentTime() const;
 	static int CurrentTime(lua_State* L);
 
-	double PrevTime();
+	double PrevTime() const;
 	static int PrevTime(lua_State* L);
 
-	double DeltaTime();
+	double DeltaTime() const;
 	static int DeltaTime(lua_State* L);
 
 	static int SysTime(lua_State* L);
 
 	void SetEntIndex(unsigned int idx);
-	unsigned int EntIndex();
+	unsigned int EntIndex() const;
 	static int EntIndex(lua_State* L);
 
 	void Finish();
-	bool ThreadRunning();
+	bool ThreadRunning() const;
 
 private:
 	CWagon(unsigned int idx);
 
 	TLuaData m_Lua{ this };
-	std::chrono::steady_clock::time_point m_StartTime;
+	unsigned int m_EntIndex = 0;
+	int m_ThinkRef = 0;
+	
+	typedef RingBuffer<TThreadMsg, 256> TThreadMsgBuffer;
+	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg{};
+	char m_Thread2Sim[sizeof(TThreadMsgBuffer)]{};
+	char m_Sim2Thread[sizeof(TThreadMsgBuffer)]{};
+
+	std::chrono::steady_clock::time_point m_StartTime{};
 	double m_ServerCurTime = -1.0;
 	double m_CurrentTime = -1.0;
 	double m_PrevTime = 0.0;
 	double m_DeltaTime = 0.0;
 	bool m_Finish = false;
 	bool m_ThreadRunning = false;
-	int m_ThinkRef = 0;
 	int m_SystemCount = 0;
-	unsigned int m_EntIndex = 0;
+	
 
-	typedef RingBuffer<TThreadMsg, 256> TThreadMsgBuffer;
-	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
-	TThreadMsgBuffer *m_Thread2Sim, *m_Sim2Thread;
 	Mutex m_RunStringMutex;
-
-	void AddToArray();
-	void RemoveFromArray();
 };
 

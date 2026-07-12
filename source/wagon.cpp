@@ -15,10 +15,10 @@ extern "C"
 }
 
 #define LOCAL_L lua_State* L = m_Lua.L
-#define LOCAL_SELF CWagon* self = static_cast<TLuaData*>(G(L)->allocd)->self
+#define LOCAL_SELF const CWagon& self = *static_cast<TLuaData*>(G(L)->allocd)->self
 
 // CWagon pointers
-static std::array<CWagon*, MAX_EDICTS> g_Wagons{};
+static std::array<CWagon, MAX_EDICTS> g_Wagons{};
 
 // RunString() flag
 bool g_RunStringEnabled = false;
@@ -30,32 +30,41 @@ static void* l_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 	return lj_alloc_f(d->msp, ptr, osize, nsize);
 }
 
-
-CWagon* CWagon::Create(unsigned int idx)
+CWagon& CWagon::Create(unsigned int idx)
 {
 	if (idx > 0 && idx < g_Wagons.size())
-		return new CWagon(idx);
+	{
+		CWagon& wag = g_Wagons[idx];
+		wag.InitEnv(idx);
+		return wag;
+	}
 
-	return nullptr;
+	return g_Wagons[0];
 }
 
-CWagon* CWagon::CWagonByIndex(unsigned int idx)
+CWagon& CWagon::CWagonByIndex(unsigned int idx)
 {
-	if (idx > 0 && idx < g_Wagons.size()) // 0 is World
-		return g_Wagons[idx];
-
-	return nullptr;
+	return g_Wagons[idx % g_Wagons.size()];
 }
 
 CWagon::CWagon(unsigned int idx)
 {
+	InitEnv(idx);
+}
+
+CWagon::~CWagon()
+{
+	CloseEnv();
+}
+
+void CWagon::InitEnv(unsigned int idx)
+{
+	if (IsValidEnv()) CloseEnv();
+
 	m_StartTime = std::chrono::steady_clock::now();
-	m_Thread2Sim = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
-	m_Sim2Thread = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
 
 	// Store entity index and pointer
 	m_EntIndex = idx;
-	AddToArray();
 
 	// Alloc lua environment
 	m_Lua.L = luaL_newstate();
@@ -106,14 +115,47 @@ CWagon::CWagon(unsigned int idx)
 	lua_setglobal(L, "_CWagon");
 }
 
-CWagon::~CWagon()
+void CWagon::CloseEnv()
 {
-	lua_close(m_Lua.L);
-	lj_alloc_destroy(m_Lua.msp);
-	RemoveFromArray();
+	Finish();
+	while (ThreadRunning())
+	{
+		std::this_thread::sleep_for(std::chrono::microseconds(500));
+	}
 
-	std::free(reinterpret_cast<void*>(m_Sim2Thread));
-	std::free(reinterpret_cast<void*>(m_Thread2Sim));
+	if (m_Lua.L != nullptr)
+	{
+		lua_close(m_Lua.L);
+		lj_alloc_destroy(m_Lua.msp);
+		m_Lua.L = nullptr;
+		m_Lua.msp = nullptr;
+	}
+	
+	m_ServerCurTime = -1.0;
+	m_CurrentTime = -1.0;
+	m_PrevTime = 0.0;
+	m_DeltaTime = 0.0;
+	m_ThinkRef = 0;
+	m_EntIndex = 0;
+	m_SystemCount = 0;
+
+	TThreadMsgBuffer& bufThread2Sim = *reinterpret_cast<TThreadMsgBuffer*>(m_Thread2Sim);
+	TThreadMsgBuffer& bufSim2Thread = *reinterpret_cast<TThreadMsgBuffer*>(m_Sim2Thread);
+
+	while (!bufThread2Sim.empty())
+	{
+		bufThread2Sim.pop();
+	}
+
+	while (!bufSim2Thread.empty())
+	{
+		bufSim2Thread.pop();
+	}
+}
+
+bool CWagon::IsValidEnv() const
+{
+	return (m_EntIndex > 0);
 }
 
 bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -125,7 +167,8 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Sim2Thread->push(tmsg);
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Sim2Thread);
+	return buf.push(tmsg);
 }
 
 int CWagon::SimRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -136,7 +179,8 @@ int CWagon::SimRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsg
 
 TThreadMsg& CWagon::SimRecvMessage()
 {
-	if (m_Thread2Sim->pop(m_Thread2SimMsg))
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Thread2Sim);
+	if (buf.pop(m_Thread2SimMsg))
 		return m_Thread2SimMsg;
 	else
 		return s_EmptyMsg;
@@ -144,7 +188,8 @@ TThreadMsg& CWagon::SimRecvMessage()
 
 int CWagon::SimReadAvailable()
 {
-	return m_Thread2Sim->size();
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Thread2Sim);
+	return buf.size();
 }
 
 bool CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -156,7 +201,8 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Thread2Sim->push(tmsg);
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Thread2Sim);
+	return buf.push(tmsg);
 }
 
 int CWagon::ThreadRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -173,7 +219,8 @@ int CWagon::ThreadRecvMessages([[maybe_unused]] lua_State* L)
 
 TThreadMsg& CWagon::ThreadRecvMessage()
 {
-	if (m_Sim2Thread->pop(m_Sim2ThreadMsg))
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Sim2Thread);
+	if (buf.pop(m_Sim2ThreadMsg))
 		return m_Sim2ThreadMsg;
 	else
 		return s_EmptyMsg;
@@ -181,10 +228,11 @@ TThreadMsg& CWagon::ThreadRecvMessage()
 
 int CWagon::ThreadReadAvailable()
 {
-	return m_Sim2Thread->size();
+	TThreadMsgBuffer& buf = *reinterpret_cast<TThreadMsgBuffer*>(m_Sim2Thread);
+	return buf.size();
 }
 
-bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)
+bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename) const
 {
 	LOCAL_L;
 	if (luaL_loadbuffer(L, buf, size, filename)
@@ -200,7 +248,7 @@ bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)
 	return true;
 }
 
-bool CWagon::CheckLibLoaded()
+bool CWagon::CheckLibLoaded() const
 {
 	LOCAL_L;
 
@@ -336,10 +384,11 @@ void CWagon::SimulationThreadFn()
 	//Release resources
 	luaL_unref(L, LUA_REGISTRYINDEX, m_ThinkRef);
 	g_SharedPrint.Push("[!] Terminating train thread\n");
+	m_Finish = false;
 	m_ThreadRunning = false;
 }
 
-void CWagon::Initialize()
+void CWagon::Initialize() const
 {
 	LOCAL_L;
 	lua_getglobal(L, "Initialize");
@@ -352,7 +401,7 @@ void CWagon::Initialize()
 	}
 }
 
-void CWagon::Think()
+void CWagon::Think() const
 {
 	LOCAL_L;
 	lua_rawgeti(L, LUA_REGISTRYINDEX, m_ThinkRef);
@@ -380,7 +429,7 @@ bool CWagon::UpdateCurTime(double t)
 	return true;
 }
 
-double CWagon::CurrentTime()
+double CWagon::CurrentTime() const
 {
 	return m_CurrentTime;
 }
@@ -388,11 +437,11 @@ double CWagon::CurrentTime()
 int CWagon::CurrentTime(lua_State* L)
 {
 	LOCAL_SELF;
-	lua_pushnumber(L, self->m_CurrentTime);
+	lua_pushnumber(L, self.m_CurrentTime);
 	return 1;
 }
 
-double CWagon::PrevTime()
+double CWagon::PrevTime() const
 {
 	return m_PrevTime;
 }
@@ -400,11 +449,11 @@ double CWagon::PrevTime()
 int CWagon::PrevTime(lua_State* L)
 {
 	LOCAL_SELF;
-	lua_pushnumber(L, self->m_PrevTime);
+	lua_pushnumber(L, self.m_PrevTime);
 	return 1;
 }
 
-double CWagon::DeltaTime()
+double CWagon::DeltaTime() const
 {
 	return m_DeltaTime;
 }
@@ -412,14 +461,14 @@ double CWagon::DeltaTime()
 int CWagon::DeltaTime(lua_State* L)
 {
 	LOCAL_SELF;
-	lua_pushnumber(L, self->m_DeltaTime);
+	lua_pushnumber(L, self.m_DeltaTime);
 	return 1;
 }
 
 int CWagon::SysTime(lua_State* L)
 {
 	LOCAL_SELF;
-	double tSysTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - self->m_StartTime).count();
+	double tSysTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - self.m_StartTime).count();
 	lua_pushnumber(L, tSysTime);
 	return 1;
 }
@@ -429,7 +478,7 @@ void CWagon::SetEntIndex(unsigned int idx)
 	m_EntIndex = idx;
 }
 
-unsigned int CWagon::EntIndex()
+unsigned int CWagon::EntIndex() const
 {
 	return m_EntIndex;
 }
@@ -437,7 +486,7 @@ unsigned int CWagon::EntIndex()
 int CWagon::EntIndex(lua_State* L)
 {
 	LOCAL_SELF;
-	lua_pushnumber(L, self->m_EntIndex);
+	lua_pushnumber(L, self.m_EntIndex);
 	return 1;
 }
 
@@ -446,21 +495,9 @@ void CWagon::Finish()
 	m_Finish = true;
 }
 
-bool CWagon::ThreadRunning()
+bool CWagon::ThreadRunning() const
 {
 	return m_ThreadRunning;
-}
-
-void CWagon::AddToArray()
-{
-	if (m_EntIndex > 0 && m_EntIndex < g_Wagons.size())
-		g_Wagons[m_EntIndex] = this;
-}
-
-void CWagon::RemoveFromArray()
-{
-	if (m_EntIndex > 0 && m_EntIndex < g_Wagons.size())
-		g_Wagons[m_EntIndex] = nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -489,7 +526,7 @@ extern "C" TURBOSTROI_EXPORT bool ThreadSendMessageIPC(void* p, void* receiver, 
 
 extern "C" TURBOSTROI_EXPORT bool ThreadSendMessageIPCIndex(void* p, int ent_index, int message, const char* system_name, const char* name, double index, double value)
 {
-	return ThreadSendMessageIPC(p, CWagon::CWagonByIndex(ent_index), message, system_name, name, index, value);
+	return ThreadSendMessageIPC(p, &CWagon::CWagonByIndex(ent_index), message, system_name, name, index, value);
 }
 
 extern "C" TURBOSTROI_EXPORT TThreadMsg& ThreadRecvMessage(void* p)

@@ -47,7 +47,7 @@ void HookRunTrainEnt(GarrysMod::Lua::ILuaBase* LUA, int entStackPos, bool remove
 //------------------------------------------------------------------------------
 // Metrostroi Lua API
 //------------------------------------------------------------------------------
-bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
+bool LoadSystem(GM::ILuaBase* LUA, CWagon& wagon, const char* filename)
 {
 	// Get file from cache
 	bool useCache = !g_CVarDisableCache.GetBool();
@@ -57,7 +57,7 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 		if (cache_item != g_LoadedFilesCache.end())
 		{
 			const std::string& data = cache_item->second;
-			return userdata->LoadBuffer(data.c_str(), data.size(), filename);
+			return wagon.LoadBuffer(data.c_str(), data.size(), filename);
 		}
 	}
 
@@ -70,7 +70,7 @@ bool LoadSystem(GM::ILuaBase* LUA, CWagon* userdata, const char* filename)
 	}
 
 	// Load file to CWagon
-	bool loaded = userdata->LoadBuffer(data, strlen(data), filename);
+	bool loaded = wagon.LoadBuffer(data, strlen(data), filename);
 	if (useCache && loaded) g_LoadedFilesCache.emplace(filename, data);
 
 	return loaded;
@@ -89,8 +89,8 @@ inline unsigned int GetEntIndex(GM::ILuaBase* LUA, int iStackPos)
 LUA_FUNCTION( API_InitializeTrain ) 
 {
 	unsigned int idx = GetEntIndex(LUA, 1);
-	CWagon* userdata = CWagon::Create(idx);
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::Create(idx);
+	if (!wagon.IsValidEnv())
 	{
 		if (idx > 0)
 		{
@@ -108,7 +108,7 @@ LUA_FUNCTION( API_InitializeTrain )
 		g_LoadedFilesCache.clear();
 
 	// Load neccessary files
-	if (!LoadSystem(LUA, userdata, "metrostroi/lib_turbostroi_v2.lua") || !userdata->CheckLibLoaded())
+	if (!LoadSystem(LUA, wagon, "metrostroi/lib_turbostroi_v2.lua") || !wagon.CheckLibLoaded())
 	{
 		ConColorMsg(Color(255, 0, 255, 255), "[!] Fail to load lib_turbostroi_v2.lua\n");
 
@@ -117,7 +117,7 @@ LUA_FUNCTION( API_InitializeTrain )
 		LUA->SetField(1, "DontAccelerateSimulation");
 
 		// Destroy CWagon
-		delete userdata;
+		wagon.CloseEnv();
 
 		// Hook call
 		HookRunTrainEnt(LUA, 1);
@@ -125,16 +125,16 @@ LUA_FUNCTION( API_InitializeTrain )
 	}
 
 	// Load up all the systems
-	LoadSystem(LUA, userdata, "metrostroi/sh_failsim.lua");
+	LoadSystem(LUA, wagon, "metrostroi/sh_failsim.lua");
 	for (const TTrainSystem& sys : g_MetrostroiSystemList)
 	{
-		LoadSystem(LUA, userdata, sys.file_name.c_str());
+		LoadSystem(LUA, wagon, sys.file_name.c_str());
 	}
 
 	// Initialize all the systems reported by the train
 	while (!g_LoadSystemList.empty())
 	{
-		userdata->AddLoadSystem(g_LoadSystemList.front());
+		wagon.AddLoadSystem(g_LoadSystemList.front());
 		g_LoadSystemList.pop();
 	}
 
@@ -142,7 +142,7 @@ LUA_FUNCTION( API_InitializeTrain )
 	HookRunTrainEnt(LUA, 1);
 
 	//Create thread for simulation
-	std::thread thread(&CWagon::SimulationThreadFn, userdata);
+	std::thread thread(&CWagon::SimulationThreadFn, &wagon);
 	thread.detach();
 
 	return 0;
@@ -150,17 +150,11 @@ LUA_FUNCTION( API_InitializeTrain )
 
 LUA_FUNCTION( API_DeinitializeTrain ) 
 {
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (wagon.IsValidEnv())
 	{
 		HookRunTrainEnt(LUA, 1, true);
-		userdata->Finish();
-		while (userdata->ThreadRunning())
-		{
-			std::this_thread::sleep_for(std::chrono::microseconds(500));
-		}
-
-		delete userdata;
+		wagon.CloseEnv();
 	}
 	
 	return 0;
@@ -196,8 +190,8 @@ LUA_FUNCTION( API_TriggerInput )
 		!LUA->IsType(3, GM::Type::String))
 		return 0;
 
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (!wagon.IsValidEnv())
 		return 0;
 
 	const char* system_name = LUA->GetString(2);
@@ -211,15 +205,15 @@ LUA_FUNCTION( API_TriggerInput )
 	else
 		value = 0;
 
-	userdata->SimSendMessage(3, system_name, name, 0, value);
+	wagon.SimSendMessage(3, system_name, name, 0, value);
 
 	return 0;
 }
 
 LUA_FUNCTION( API_SendMessage ) 
 {
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (!wagon.IsValidEnv())
 	{
 		LUA->PushBool(false);
 		return 1;
@@ -231,7 +225,7 @@ LUA_FUNCTION( API_SendMessage )
 	double index = LUA->CheckNumber(5);
 	double value = LUA->CheckNumber(6);
 
-	bool sended = userdata->SimSendMessage(message,
+	bool sended = wagon.SimSendMessage(message,
 		system_name,name,
 		index,value);
 
@@ -241,11 +235,11 @@ LUA_FUNCTION( API_SendMessage )
 
 LUA_FUNCTION( API_RecvMessages ) 
 {
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (!wagon.IsValidEnv())
 		return 0;
 
-	int msg_count = userdata->SimReadAvailable();
+	int msg_count = wagon.SimReadAvailable();
 
 	if (msg_count == 0)
 		return 0;
@@ -256,7 +250,7 @@ LUA_FUNCTION( API_RecvMessages )
 	{
 		for (int i = 1; i <= msg_count; i++)
 		{
-			const TThreadMsg& tmsg = userdata->SimRecvMessage();
+			const TThreadMsg& tmsg = wagon.SimRecvMessage();
 			iLUA->PreCreateTable(5+1, 0); // 0 allocated too
 			{
 				LUA->PushNumber(tmsg.message);
@@ -283,11 +277,11 @@ LUA_FUNCTION( API_RecvMessages )
 
 LUA_FUNCTION( API_RecvMessage ) 
 {
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (!wagon.IsValidEnv())
 		return 0;
 
-	TThreadMsg& tmsg = userdata->SimRecvMessage();
+	TThreadMsg& tmsg = wagon.SimRecvMessage();
 	LUA->PushNumber(tmsg.message);
 	LUA->PushString(tmsg.system_name);
 	LUA->PushString(tmsg.name);
@@ -301,22 +295,22 @@ LUA_FUNCTION( API_RunString )
 	if (!g_RunStringEnabled)
 		return 0;
 
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
-	if (userdata == nullptr)
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	if (!wagon.IsValidEnv())
 		return 0;
 
 	const char* str = LUA->CheckString(2);
 	int uid = (int)LUA->CheckNumber(3);
-	userdata->RunString(str, uid);
+	wagon.RunString(str, uid);
 	return 0;
 }
 
 LUA_FUNCTION( API_ReadAvailable )
 {
-	CWagon* userdata = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
+	CWagon& wagon = CWagon::CWagonByIndex(GetEntIndex(LUA, 1));
 
-	if (userdata != nullptr)
-		LUA->PushNumber(userdata->SimReadAvailable());
+	if (wagon.IsValidEnv())
+		LUA->PushNumber(wagon.SimReadAvailable());
 	else
 		LUA->PushNumber(0);
 
