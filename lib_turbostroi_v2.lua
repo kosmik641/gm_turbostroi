@@ -1,4 +1,4 @@
-LIB_TURBOSTROI_VERSION = "v2.10.0"
+LIB_TURBOSTROI_VERSION = "2.10.0"
 
 if SERVER and Turbostroi then
 --------------------------------------------------------------------------------

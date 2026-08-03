@@ -210,7 +210,7 @@ bool CWagon::CheckLibLoaded()
 		const char* ver = lua_tostring(L, -1);
 		lua_pop(L, 1);
 
-		if (strcmp(ver, TURBOSTROI_VERSION) == 0)
+		if (strcmp(ver, TURBOSTROI_VERSION_STR) == 0)
 			return true;
 		
 		g_SharedPrint.Push("[!] Incompatable lib_turbostroi_v2.lua version (");

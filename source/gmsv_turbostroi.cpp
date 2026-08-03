@@ -445,6 +445,7 @@ GMOD_MODULE_OPEN()
 		InstallHooks(LUA);
 
 		//Initialize API
+		LUA->PushNumber(TURBOSTROI_VERSION); LUA->SetField(-2, "TURBOSTROI_VERSION");
 		LUA->CreateTable();
 		{
 			PushCFunc(API_InitializeTrain, "InitializeTrain");
