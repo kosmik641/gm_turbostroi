@@ -48,7 +48,7 @@ public:
 		return true;
 	}
 
-	inline size_type size()
+	inline size_type size() const
 	{
 		size_type head = _head.load(std::memory_order_acquire);
 		size_type tail = _tail.load(std::memory_order_acquire);
@@ -59,14 +59,14 @@ public:
 			return _Size + head - tail;
 	}
 
-	inline bool empty()
+	inline bool empty() const
 	{
 		size_type head = _head.load(std::memory_order_acquire);
 		size_type tail = _tail.load(std::memory_order_acquire);
 		return (head == tail);
 	}
 
-	inline bool full()
+	inline bool full() const
 	{
 		size_type head = _head.load(std::memory_order_acquire);
 		size_type tail = _tail.load(std::memory_order_acquire);
@@ -74,7 +74,7 @@ public:
 		return (next_head == tail);
 	}
 
-	inline size_type buffer_size()
+	inline size_type buffer_size() const
 	{
 		return _Size;
 	}

@@ -50,8 +50,6 @@ CWagon* CWagon::CWagonByIndex(unsigned int idx)
 CWagon::CWagon(unsigned int idx)
 {
 	m_StartTime = std::chrono::steady_clock::now();
-	m_Thread2Sim = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
-	m_Sim2Thread = reinterpret_cast<TThreadMsgBuffer*>(std::calloc(1, sizeof(TThreadMsgBuffer)));
 
 	// Store entity index and pointer
 	m_EntIndex = idx;
@@ -111,9 +109,6 @@ CWagon::~CWagon()
 	lua_close(m_Lua.L);
 	lj_alloc_destroy(m_Lua.msp);
 	RemoveFromArray();
-
-	std::free(reinterpret_cast<void*>(m_Sim2Thread));
-	std::free(reinterpret_cast<void*>(m_Thread2Sim));
 }
 
 bool CWagon::SimSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -125,7 +120,8 @@ bool CWagon::SimSendMessage(int message, const char* system_name, const char* na
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Sim2Thread->push(tmsg);
+	TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Sim2ThreadMem);
+	return buffer.push(tmsg);
 }
 
 int CWagon::SimRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -136,7 +132,8 @@ int CWagon::SimRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsg
 
 TThreadMsg& CWagon::SimRecvMessage()
 {
-	if (m_Thread2Sim->pop(m_Thread2SimMsg))
+	TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Thread2SimMem);
+	if (buffer.pop(m_Thread2SimMsg))
 		return m_Thread2SimMsg;
 	else
 		return s_EmptyMsg;
@@ -144,7 +141,8 @@ TThreadMsg& CWagon::SimRecvMessage()
 
 int CWagon::SimReadAvailable()
 {
-	return m_Thread2Sim->size();
+	const TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Thread2SimMem);
+	return buffer.size();
 }
 
 bool CWagon::ThreadSendMessage(int message, const char* system_name, const char* name, double index, double value)
@@ -156,7 +154,8 @@ bool CWagon::ThreadSendMessage(int message, const char* system_name, const char*
 	tmsg.index = index;
 	tmsg.value = value;
 
-	return m_Thread2Sim->push(tmsg);
+	TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Thread2SimMem);
+	return buffer.push(tmsg);
 }
 
 int CWagon::ThreadRecvMessages([[maybe_unused]] std::unique_ptr<TThreadMsg[]>& tmsgs)
@@ -173,7 +172,8 @@ int CWagon::ThreadRecvMessages([[maybe_unused]] lua_State* L)
 
 TThreadMsg& CWagon::ThreadRecvMessage()
 {
-	if (m_Sim2Thread->pop(m_Sim2ThreadMsg))
+	TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Sim2ThreadMem);
+	if (buffer.pop(m_Sim2ThreadMsg))
 		return m_Sim2ThreadMsg;
 	else
 		return s_EmptyMsg;
@@ -181,7 +181,8 @@ TThreadMsg& CWagon::ThreadRecvMessage()
 
 int CWagon::ThreadReadAvailable()
 {
-	return m_Sim2Thread->size();
+	const TThreadMsgBuffer& buffer = reinterpret_cast<TThreadMsgBuffer&>(m_Sim2ThreadMem);
+	return buffer.size();
 }
 
 bool CWagon::LoadBuffer(const char* buf, size_t size, const char* filename)

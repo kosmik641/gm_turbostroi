@@ -105,7 +105,7 @@ private:
 
 	typedef RingBuffer<TThreadMsg, 256> TThreadMsgBuffer;
 	TThreadMsg m_Thread2SimMsg, m_Sim2ThreadMsg;
-	TThreadMsgBuffer *m_Thread2Sim, *m_Sim2Thread;
+	char m_Thread2SimMem[sizeof(TThreadMsgBuffer)]{}, m_Sim2ThreadMem[sizeof(TThreadMsgBuffer)]{};
 	Mutex m_RunStringMutex;
 
 	void AddToArray();
